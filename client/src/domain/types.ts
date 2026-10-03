@@ -1,4 +1,5 @@
-export type ProviderId = 'freeteknomusic' | 'soundcloud' | 'archiveorg' | 'discogs' | 'youtube' | 'hearthis';
+import type { ProviderId } from '@syco23/mixsets-domain';
+export type { ProviderId } from '@syco23/mixsets-domain';
 export type MixStatus = 'ready' | 'review' | 'enriching' | 'queued' | 'error';
 
 export interface Artwork {

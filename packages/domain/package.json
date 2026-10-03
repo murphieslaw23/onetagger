@@ -1,0 +1,1 @@
+{"name":"@syco23/mixsets-domain","version":"0.1.0","private":true,"type":"module","exports":{".":"./dist/index.js"},"types":"./dist/index.d.ts","scripts":{"build":"tsc -p tsconfig.json","test":"tsx --test src/*.test.ts","typecheck":"tsc --noEmit"},"dependencies":{"zod":"^4.3.6"},"devDependencies":{"@types/node":"^24.5.2","tsx":"^4.20.5","typescript":"^5.9.2"}}

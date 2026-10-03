@@ -13,6 +13,9 @@ importers:
       '@quasar/extras':
         specifier: 1.16.16
         version: 1.16.16
+      '@syco23/mixsets-domain':
+        specifier: workspace:*
+        version: link:../packages/domain
       quasar:
         specifier: 2.17.7
         version: 2.17.7
@@ -42,7 +45,27 @@ importers:
         specifier: 3.0.5
         version: 3.0.5(typescript@5.7.3)
 
+  packages/domain:
+    dependencies:
+      zod:
+        specifier: ^4.3.6
+        version: 4.6.5
+    devDependencies:
+      '@types/node':
+        specifier: ^24.5.2
+        version: 24.19.1
+      tsx:
+        specifier: ^4.20.5
+        version: 4.23.15
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+
   server:
+    dependencies:
+      '@syco23/mixsets-domain':
+        specifier: workspace:*
+        version: link:../packages/domain
     devDependencies:
       '@types/node':
         specifier: ^24.5.2
@@ -907,6 +930,9 @@ packages:
       typescript:
         optional: true
 
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+
 snapshots:
 
   '@babel/helper-string-parser@7.29.7': {}
@@ -1556,3 +1582,5 @@ snapshots:
       '@vue/shared': 3.5.13
     optionalDependencies:
       typescript: 5.7.3
+
+  zod@4.6.5: {}
