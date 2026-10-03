@@ -88,7 +88,7 @@ export const mixes: MixSet[] = [
     confidence: 0.82,
     completeness: 0.62,
     provenance: [{ provider: 'freeteknomusic', field: 'title', confidence: 0.9, observedAt: now }],
-    status: 'enriching',
+    status: 'review',
     createdAt: now,
     updatedAt: now,
   },

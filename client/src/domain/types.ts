@@ -68,6 +68,7 @@ export interface ImportJob {
   id: string;
   provider: ProviderId;
   label: string;
+  query?: Record<string, unknown>;
   state: 'queued' | 'running' | 'review' | 'done' | 'error' | 'cancelled';
   progress: number;
   scanned: number;

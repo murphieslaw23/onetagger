@@ -40,6 +40,7 @@ export interface SearchQuery {
   artist?: string;
   crew?: string;
   minDurationMs?: number;
+  durationExpectedMs?: number;
   maxDepth?: number;
   maxItems?: number;
   limit?: number;

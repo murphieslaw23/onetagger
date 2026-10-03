@@ -4,17 +4,19 @@
       <div>
         <p class="kicker">HUMAN REVIEW / PROVENANCE FIRST</p>
         <h1>Accept fields, not guesses.</h1>
-        <p class="hero-copy">Candidates remain separate from the canonical set until you accept them. Confidence explains ranking; provenance explains where each field came from.</p>
+        <p class="hero-copy">Provider conflicts stay separate from the canonical set until you accept them. Low-confidence records without field conflicts also remain visible here until explicitly reviewed.</p>
       </div>
     </header>
 
     <div class="review-stack" v-if="pending.length">
       <article class="review-card" v-for="{ mix, candidate } in pending" :key="candidate.id">
         <div class="review-card__identity">
-          <img :src="mix.artwork[0]?.url" :alt="mix.title" />
+          <ArtworkFrame :src="mix.artwork[0]?.url" :alt="mix.title" />
           <div>
             <span class="kicker">CANONICAL</span>
-            <h2>{{ mix.title }}</h2>
+            <router-link :to="'/mix/' + encodeURIComponent(mix.id)" class="review-title-link">
+              <h2>{{ mix.title }}</h2>
+            </router-link>
             <p>{{ mix.artists.join(' · ') }} <template v-if="mix.crews.length">/ {{ mix.crews.join(' · ') }}</template></p>
           </div>
         </div>
@@ -34,14 +36,28 @@
             </template>
           </dl>
           <div class="review-actions">
-            <button class="btn" @click="rejectCandidate(candidate)">Reject</button>
+            <button class="btn" @click="rejectCandidate(candidate, mix)">Reject</button>
             <button class="btn btn--primary" @click="applyCandidate(mix, candidate)">Accept candidate</button>
           </div>
         </div>
       </article>
     </div>
 
-    <div v-else class="empty-state">
+    <section v-if="recordReviews.length" class="panel record-review-panel">
+      <div class="panel-head"><span>{{ recordReviews.length }} RECORDS</span><b>LOW-CONFIDENCE CANONICAL REVIEW</b></div>
+      <article v-for="mix in recordReviews" :key="mix.id" class="record-review-row">
+        <ArtworkFrame :src="mix.artwork[0]?.url" :alt="mix.title" />
+        <div class="record-review-row__body">
+          <span class="kicker">{{ Math.round(mix.confidence * 100) }}% confidence · {{ Math.round(mix.completeness * 100) }}% complete</span>
+          <router-link :to="'/mix/' + encodeURIComponent(mix.id)"><strong>{{ mix.title }}</strong></router-link>
+          <small>{{ mix.artists.join(' · ') || 'Unknown artist' }}</small>
+        </div>
+        <router-link :to="'/mix/' + encodeURIComponent(mix.id)" class="btn">Inspect</router-link>
+        <button class="btn btn--primary" @click="markReviewed(mix)">Mark reviewed</button>
+      </article>
+    </section>
+
+    <div v-if="!pending.length && !recordReviews.length" class="empty-state">
       <q-icon name="mdi-check-decagram-outline" size="42px" />
       <strong>Review queue is clean.</strong>
       <router-link to="/import" class="btn">Discover more mixes</router-link>
@@ -51,10 +67,25 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import ArtworkFrame from '../components/ArtworkFrame.vue';
 import SourceBadge from '../components/SourceBadge.vue';
 import { useMixStore } from '../composables/useMixStore';
 
-const { state, applyCandidate, rejectCandidate } = useMixStore();
-const pending = computed(() => state.mixes.flatMap((mix) => mix.candidates.filter((candidate) => candidate.state === 'pending').map((candidate) => ({ mix, candidate }))));
-const display = (value: unknown) => Array.isArray(value) ? value.join(' · ') : typeof value === 'object' ? JSON.stringify(value) : String(value ?? '—');
+const { state, applyCandidate, rejectCandidate, markReviewed } = useMixStore();
+
+const pending = computed(() => state.mixes.flatMap((mix) =>
+  mix.candidates
+    .filter((candidate) => candidate.state === 'pending')
+    .map((candidate) => ({ mix, candidate })),
+));
+
+const recordReviews = computed(() => state.mixes.filter((mix) =>
+  mix.status === 'review' && !mix.candidates.some((candidate) => candidate.state === 'pending'),
+));
+
+const display = (value: unknown) => Array.isArray(value)
+  ? value.join(' · ')
+  : typeof value === 'object'
+    ? JSON.stringify(value)
+    : String(value ?? '—');
 </script>

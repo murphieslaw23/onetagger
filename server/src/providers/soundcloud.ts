@@ -17,7 +17,7 @@ async function api<T>(path: string, params: URLSearchParams, signal?: AbortSigna
       signal: inner,
       headers: { accept: 'application/json', authorization: `OAuth ${token()}` },
     });
-    if (!response.ok) throw new Error(`SoundCloud ${response.status}: ${await response.text()}`);
+    if (!response.ok) throw new Error(`SoundCloud ${response.status} ${response.statusText || 'request rejected'}`);
     return response.json() as Promise<T>;
   }, 12_000, signal));
 }
@@ -55,6 +55,7 @@ export class SoundCloudProvider implements DiscoveryProvider {
         query: q,
         title: track.title,
         artist: user.username,
+        durationExpectedMs: query.durationExpectedMs,
         durationActualMs: track.duration,
       });
       return {

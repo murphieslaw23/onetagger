@@ -55,7 +55,7 @@ export class ArchiveOrgProvider implements DiscoveryProvider {
 
       const title = String(metadata.title || doc.title || identifier);
       const creators = list(metadata.creator || doc.creator);
-      const scored = confidenceScore({ query: q, title, artist: creators.join(' '), durationActualMs: durationMs });
+      const scored = confidenceScore({ query: q, title, artist: creators.join(' '), durationExpectedMs: query.durationExpectedMs, durationActualMs: durationMs });
       candidates.push({
         provider: this.id,
         title,

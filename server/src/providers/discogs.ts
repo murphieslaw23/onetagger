@@ -18,10 +18,13 @@ export class DiscogsEnricher {
   async health(signal?: AbortSignal): Promise<ProviderHealth> {
     try {
       const response = await withTimeout((inner) => fetch('https://api.discogs.com/database/search?q=spiral+tribe&type=artist&per_page=1', { signal: inner, headers: this.headers() }), 7_000, signal);
+      const authenticated = Boolean(process.env.DISCOGS_TOKEN);
       return {
         id: this.id,
-        state: response.ok ? (process.env.DISCOGS_TOKEN ? 'ready' : 'limited') : 'offline',
-        detail: process.env.DISCOGS_TOKEN ? 'Artist/label enrichment authenticated' : 'Unauthenticated rate limit; set DISCOGS_TOKEN',
+        state: response.ok ? (authenticated ? 'ready' : 'limited') : 'offline',
+        detail: response.ok
+          ? authenticated ? 'Artist/label enrichment authenticated' : 'Unauthenticated rate limit; set DISCOGS_TOKEN'
+          : `Discogs API ${response.status} ${response.statusText || 'request rejected'}`,
         checkedAt: new Date().toISOString(),
       };
     } catch (error) {
@@ -34,7 +37,7 @@ export class DiscogsEnricher {
     const params = new URLSearchParams({ q: name, type, per_page: '5' });
     const payload = await retry(() => withTimeout(async (inner) => {
       const response = await fetch(new URL(`database/search?${params}`, API), { signal: inner, headers: this.headers() });
-      if (!response.ok) throw new Error(`Discogs search ${response.status}`);
+      if (!response.ok) throw new Error(`Discogs search ${response.status} ${response.statusText || 'request rejected'}`);
       return response.json() as Promise<{ results?: Array<Record<string, any>> }>;
     }, 12_000, signal));
 

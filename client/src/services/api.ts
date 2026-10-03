@@ -1,4 +1,4 @@
-import type { ProviderId } from '../domain/types';
+import type { MixSet, ProviderId } from '../domain/types';
 
 export interface ApiMixCandidate {
   provider: ProviderId;
@@ -20,11 +20,14 @@ export interface ApiMixCandidate {
 export interface ApiDiscoveryJob {
   id: string;
   provider: ProviderId;
+  query?: Record<string, unknown>;
   state: 'queued' | 'running' | 'review' | 'done' | 'error' | 'cancelled';
   progress: number;
   scanned: number;
   found: number;
   candidates: ApiMixCandidate[];
+  createdAt?: string;
+  updatedAt?: string;
   error?: string;
 }
 
@@ -33,6 +36,36 @@ export interface ApiProviderHealth {
   state: 'ready' | 'limited' | 'offline';
   detail: string;
   checkedAt: string;
+}
+
+export interface ApiEnrichmentResult {
+  patch: {
+    durationMs?: number;
+    recordedAt?: string;
+    description?: string;
+    genres?: string[];
+    artwork?: Array<{ url: string; provider: ProviderId; kind: 'cover' | 'artist' | 'crew' }>;
+    sources?: Array<{ provider: ProviderId; url: string; externalId?: string }>;
+    externalIds?: Record<string, string>;
+  };
+  candidates: ApiMixCandidate[];
+  entities: Array<{
+    kind: 'artist' | 'crew' | 'label';
+    name: string;
+    provider?: ProviderId;
+    externalId?: string;
+    url?: string;
+    imageUrl?: string;
+    profile?: string;
+  }>;
+  provenance: Array<{
+    provider: ProviderId;
+    field: string;
+    confidence: number;
+    sourceUrl?: string;
+  }>;
+  attempted: ProviderId[];
+  failures: Array<{ provider: ProviderId; error: string }>;
 }
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '');
@@ -59,6 +92,10 @@ export function createDiscoveryJob(provider: ProviderId, query: Record<string, u
   });
 }
 
+export function getDiscoveryJobs() {
+  return request<ApiDiscoveryJob[]>('/jobs');
+}
+
 export function getDiscoveryJob(id: string) {
   return request<ApiDiscoveryJob>(`/jobs/${encodeURIComponent(id)}`);
 }
@@ -72,4 +109,22 @@ export function cancelDiscoveryJob(id: string) {
 
 export function getProviderHealth() {
   return request<ApiProviderHealth[]>('/providers');
+}
+
+export function enrichMixMetadata(mix: MixSet) {
+  return request<ApiEnrichmentResult>('/enrich', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: mix.title,
+      artists: mix.artists,
+      crews: mix.crews,
+      durationMs: mix.durationMs || undefined,
+      recordedAt: mix.recordedAt,
+      description: mix.description,
+      genres: mix.genres,
+      artwork: mix.artwork,
+      sources: mix.sources,
+      externalIds: mix.externalIds,
+    }),
+  });
 }

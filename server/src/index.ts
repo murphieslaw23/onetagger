@@ -2,6 +2,7 @@ import http from 'node:http';
 import { URL } from 'node:url';
 import { ProviderRegistry } from './core/registry.js';
 import { InMemoryJobQueue } from './jobs/in-memory.js';
+import { enrichMix } from './core/enrichment.js';
 
 const port = Number(process.env.PORT || 8787);
 const registry = new ProviderRegistry();
@@ -55,6 +56,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && cancelMatch) {
       const job = queue.cancel(cancelMatch[1]);
       return job ? json(res, 200, job) : json(res, 404, { error: 'job not found' });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/enrich') {
+      const input = await body(req);
+      if (!input.title || !Array.isArray(input.artists)) return json(res, 400, { error: 'title and artists are required' });
+      return json(res, 200, await enrichMix(registry, input));
     }
     if (req.method === 'POST' && url.pathname === '/api/discogs/enrich') {
       const input = await body(req);
