@@ -31,6 +31,10 @@ const editableFields: Record<CatalogRecord['kind'], readonly string[]> = {
   event: ['name', 'startDate', 'endDate', 'venue', 'locality', 'country', 'assets', 'sourceUrls', 'mixIds']
 };
 
+// Transport limit for an uploaded waveform. Well below the 8 MiB stored-asset
+// bound so oversized bodies are cut off mid-stream rather than buffered whole.
+const maxWaveformUploadBytes = 2 * 1024 * 1024;
+
 function requireCurator(context: CatalogRouteContext, request: IncomingMessage, response: ServerResponse): boolean {
   if (!isAllowedOrigin(request)) {
     sendJson(response, 403, { error: 'Origin is not allowed' });
@@ -49,10 +53,55 @@ function parsedError(error: unknown): { status: number; body: unknown } {
     return { status: 400, body: { error: 'Input validation failed', issues: error.issues } };
   }
   const message = error instanceof Error ? error.message : String(error);
+  // Only curated domain messages are safe to echo. Anything else is logged
+  // server-side so paths, SQL and dependency errors never reach a client.
   if (/revision conflict/i.test(message)) return { status: 409, body: { error: message } };
-  if (/does not exist|unknown record/i.test(message)) return { status: 404, body: { error: message } };
-  return { status: 400, body: { error: message } };
+  if (/does not exist|not found|unknown record|unknown catalog record/i.test(message)) return { status: 404, body: { error: message } };
+  if (clientSafeMessage(message)) return { status: 400, body: { error: message } };
+  console.error('Unhandled catalog failure:', error);
+  return { status: 500, body: { error: 'Request failed' } };
 }
+
+/**
+ * Curated domain rejections that describe a bad request rather than an internal
+ * fault. Each entry maps a message prefix used by the catalog layer to the HTTP
+ * status a client should see.
+ *
+ * This is an explicit list rather than a broad regex so a newly thrown message
+ * fails the `routes.test.ts` contract test (500, generic body) instead of silently
+ * downgrading an internal error into a 400 that echoes internal detail.
+ */
+function clientSafeMessage(message: string): boolean {
+  return SAFE_MESSAGES.some((prefix) => message.startsWith(prefix));
+}
+
+const SAFE_MESSAGES = [
+  'Event relationship target must be an event',
+  'Imported record could not be reloaded',
+  'Legacy ID is invalid',
+  'Media path is invalid',
+  'Migration batch is outside supported bounds',
+  'Migration batch',
+  'Mix record disappeared during enrichment',
+  'New records must start at revision 1',
+  'Pending review item',
+  'Provider identity points to missing record',
+  'Record revision must advance to',
+  'Relationship references an unknown record',
+  'Relationship target does not have the',
+  'Review item',
+  'Target record',
+  'Unknown record',
+  'Waveform image must be a valid PNG with an IHDR header',
+  'Waveform PNG dimensions exceed the supported bounds',
+  'Waveform PNG exceeds the 8 MiB size limit',
+  'Waveform source URL is invalid',
+  'Waveform target must be an existing mix',
+  'Catalog record',
+  'Patch contains a field that cannot be edited directly',
+  'Unsupported catalog field',
+  'Field'
+] as const;
 
 function recordId(value: string): RecordId {
   return decodeURIComponent(value) as RecordId;
@@ -142,7 +191,9 @@ export async function handleCatalogRoute(context: CatalogRouteContext, request: 
       return true;
     }
     try {
-      const png = await readRequestBytes(request, 8 * 1024 * 1024);
+      // The transport limit is tighter than the stored-asset limit: an oversized or
+      // non-PNG body is rejected while streaming instead of after buffering 8 MiB.
+      const png = await readRequestBytes(request, maxWaveformUploadBytes);
       const sourceUrl = url.searchParams.get('sourceUrl') ?? '';
       const record = persistWaveform(context.repository, recordId(waveformMatch[1]), png, sourceUrl);
       sendJson(response, 200, record);
@@ -182,6 +233,19 @@ export async function handleCatalogRoute(context: CatalogRouteContext, request: 
       const parsed = parsedError(error);
       sendJson(response, parsed.status, parsed.body);
     }
+    return true;
+  }
+
+  const runMatch = path.match(/^\/api\/catalog\/records\/([^/]+)\/enrichment-runs$/);
+  if (request.method === 'GET' && runMatch) {
+    const record = context.repository.getRecord(recordId(runMatch[1]));
+    if (!record) {
+      sendJson(response, 404, { error: 'Catalog record not found' });
+      return true;
+    }
+    // Unfinished runs are curator-only; public readers see the settled history.
+    const runs = context.repository.listEnrichmentRuns(record.id);
+    sendJson(response, 200, context.auth.authenticate(request) ? runs : runs.filter((run) => run.state !== 'running'));
     return true;
   }
 

@@ -8,6 +8,7 @@ import {
   type CatalogDetail,
   type CatalogPage,
   type CatalogRecord,
+  type EnrichmentReport,
   type EntityRecord,
   type EntityRole,
   type FieldClaim,
@@ -61,6 +62,28 @@ export interface StoredMediaAsset {
   sourceUrl: string;
 }
 
+export interface EnrichmentRunInput {
+  id: string;
+  recordId: RecordId;
+  attemptedProviders: string[];
+  actor: string;
+  startedAt: string;
+}
+
+export interface EnrichmentRun {
+  id: string;
+  recordId: RecordId;
+  state: 'running' | 'completed' | 'interrupted' | 'failed';
+  attemptedProviders: string[];
+  applied: number;
+  corroborated: number;
+  reviewed: number;
+  errors: Array<{ provider: string; message: string }>;
+  missingFields: string[];
+  startedAt: string;
+  finishedAt?: string;
+}
+
 export interface CatalogRepository {
   getRecord(id: RecordId): CatalogDetail | undefined;
   listIndex(kind: IndexKind, query: PageQuery): CatalogPage;
@@ -76,6 +99,10 @@ export interface CatalogRepository {
   getMediaAsset(mediaId: RecordId): StoredMediaAsset | undefined;
   getMigrationBatch(batchId: string): MigrationResult | undefined;
   saveMigrationBatch(result: MigrationResult): MigrationResult;
+  startEnrichmentRun(run: EnrichmentRunInput): void;
+  finishEnrichmentRun(runId: string, state: 'completed' | 'interrupted' | 'failed', report?: EnrichmentReport): void;
+  interruptStaleEnrichmentRuns(): number;
+  listEnrichmentRuns(recordId: RecordId): EnrichmentRun[];
   transaction<T>(operation: (tx: CatalogTransaction) => T): T;
   close(): void;
 }
@@ -291,6 +318,52 @@ export function openCatalog(path: string): CatalogRepository {
       const row = database.prepare('SELECT result_json FROM migration_batches WHERE batch_id = ?').get(result.batchId) as { result_json: string } | undefined;
       if (!row) throw new Error(`Migration batch ${result.batchId} could not be stored`);
       return JSON.parse(row.result_json) as MigrationResult;
+    },
+
+    startEnrichmentRun(run) {
+      // The partial unique index on state='running' rejects overlapping runs for the
+      // same record, so a crashed run blocks a retry until it is marked interrupted.
+      database.prepare(`INSERT INTO enrichment_runs(id, record_id, state, attempted_providers, actor, started_at)
+        VALUES (?, ?, 'running', ?, ?, ?)`).run(run.id, run.recordId, JSON.stringify(run.attemptedProviders), run.actor, run.startedAt);
+    },
+
+    finishEnrichmentRun(runId, state, report) {
+      database.prepare(`UPDATE enrichment_runs
+        SET state = ?, applied = ?, corroborated = ?, reviewed = ?, errors_json = ?, missing_fields = ?, finished_at = ?
+        WHERE id = ? AND state = 'running'`)
+        .run(state, report?.applied ?? 0, report?.corroborated ?? 0, report?.reviewed ?? 0,
+          JSON.stringify(report?.errors ?? []), JSON.stringify(report?.missingFields ?? []), new Date().toISOString(), runId);
+    },
+
+    interruptStaleEnrichmentRuns() {
+      // Called at worker start: runs left 'running' by a previous process can never
+      // finish, so they are closed out and become visible as retryable.
+      const result = database.prepare(`UPDATE enrichment_runs SET state = 'interrupted', finished_at = ?
+        WHERE state = 'running'`).run(new Date().toISOString());
+      return Number(result.changes ?? 0);
+    },
+
+    listEnrichmentRuns(recordId) {
+      const rows = database.prepare(`SELECT id, record_id, state, attempted_providers, applied, corroborated,
+        reviewed, errors_json, missing_fields, started_at, finished_at
+        FROM enrichment_runs WHERE record_id = ? ORDER BY started_at DESC LIMIT 20`).all(recordId) as Array<{
+          id: string; record_id: string; state: EnrichmentRun['state']; attempted_providers: string;
+          applied: number; corroborated: number; reviewed: number; errors_json: string;
+          missing_fields: string; started_at: string; finished_at: string | null;
+        }>;
+      return rows.map((row) => ({
+        id: row.id,
+        recordId: row.record_id,
+        state: row.state,
+        attemptedProviders: JSON.parse(row.attempted_providers) as string[],
+        applied: row.applied,
+        corroborated: row.corroborated,
+        reviewed: row.reviewed,
+        errors: JSON.parse(row.errors_json) as Array<{ provider: string; message: string }>,
+        missingFields: JSON.parse(row.missing_fields) as string[],
+        startedAt: row.started_at,
+        ...(row.finished_at ? { finishedAt: row.finished_at } : {})
+      }));
     },
 
     listIndex(kind, input) {

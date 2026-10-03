@@ -1,7 +1,8 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   EnrichmentReportSchema,
   missingFields,
+  type CatalogRecord,
   type EnrichmentReport,
   type MixRecord,
   type ProviderRef,
@@ -131,8 +132,60 @@ export async function enrichCatalogRecord(
   id: string,
   actor: CuratorActor
 ): Promise<EnrichmentReport> {
+  const runId = `run_${randomUUID()}`;
+  const report = await runTrackedEnrichment(repository, registry, id, actor, runId);
+  return report;
+}
+
+/**
+ * Wraps an enrichment pass with a durable run record. The run is opened before any
+ * provider work so a crash leaves an `interrupted` run behind instead of silently
+ * dropping the attempt, and provider failures are still committed as a completed run
+ * with their errors rather than discarding valid results from the other providers.
+ */
+async function runTrackedEnrichment(
+  repository: CatalogRepository,
+  registry: ProviderRegistry,
+  id: string,
+  actor: CuratorActor,
+  runId: string
+): Promise<EnrichmentReport> {
   const original = repository.getRecord(id as MixRecord['id']);
   if (!original) throw new Error(`Catalog record ${id} does not exist`);
+  repository.startEnrichmentRun({
+    id: runId,
+    recordId: original.id,
+    attemptedProviders: [],
+    actor: actor.sessionId,
+    startedAt: new Date().toISOString()
+  });
+  try {
+    const report = await performEnrichment(repository, registry, original, actor);
+    repository.finishEnrichmentRun(runId, 'completed', report);
+    return report;
+  } catch (error) {
+    repository.finishEnrichmentRun(runId, 'interrupted');
+    console.error(`Enrichment run ${runId} for ${id} did not complete:`, error);
+    const partial = EnrichmentReportSchema.parse({
+      state: 'interrupted',
+      attemptedProviders: [],
+      applied: 0,
+      corroborated: 0,
+      reviewed: 0,
+      errors: [{ provider: 'freeteknomusic', message: 'Enrichment did not finish; retry the run' }],
+      missingFields: missingFields(original)
+    });
+    return partial;
+  }
+}
+
+async function performEnrichment(
+  repository: CatalogRepository,
+  registry: ProviderRegistry,
+  original: CatalogRecord,
+  actor: CuratorActor
+): Promise<EnrichmentReport> {
+  const id = original.id;
   if (original.kind === 'entity') return enrichEntityRecord(repository, registry, original, actor);
   if (original.kind !== 'mix') return EnrichmentReportSchema.parse(initialReport(original));
 

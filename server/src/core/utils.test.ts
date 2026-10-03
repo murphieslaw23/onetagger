@@ -4,7 +4,24 @@ import { confidenceScore, duplicateKey, normalizeQuery, overlapScore, uniqueCand
 import type { MixCandidate } from '../domain.js';
 
 test('normalizeQuery strips technical noise but preserves identity tokens', () => {
-  assert.equal(normalizeQuery('Gotek_-_Live @ NBT Party Roma 03-03-07.mp3'), 'gotek @ nbt party roma 03 03 07');
+  // File format is noise; "Live" is a meaningful part of the recording title.
+  assert.equal(normalizeQuery('Gotek_-_Live @ NBT Party Roma 03-03-07.mp3'), 'gotek live @ nbt party roma 03 03 07');
+});
+
+test('normalizeQuery preserves meaningful artist and title tokens', () => {
+  // Identity rule 3: names such as "DJ ..." or "Live ..." must not lose words.
+  assert.equal(normalizeQuery('DJ Koalisson III'), 'dj koalisson iii');
+  assert.equal(normalizeQuery('Live at Wacken 2003'), 'live at wacken 2003');
+  assert.equal(normalizeQuery('Spiral Tribe live set'), 'spiral tribe live set');
+});
+
+test('normalizeQuery drops artifact words only in trailing position', () => {
+  assert.equal(normalizeQuery('Aniane Live 98 Radio Show Mix'), 'aniane live 98 radio show');
+  // "DJ set" and "live set" are meaningful descriptors, not file-format noise.
+  assert.equal(normalizeQuery('Metek DJ set'), 'metek dj set');
+  assert.equal(normalizeQuery('Spiral Tribe live set'), 'spiral tribe live set');
+  // A title that consists only of an artifact word is not emptied out.
+  assert.equal(normalizeQuery('Mix'), 'mix');
 });
 
 test('overlapScore rewards shared artist/event tokens', () => {

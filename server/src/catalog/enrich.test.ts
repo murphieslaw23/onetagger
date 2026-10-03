@@ -77,6 +77,102 @@ test('a candidate with no duration remains review material rather than selected 
   });
 });
 
+test('a completed enrichment run is persisted with its provider results and missing fields', async () => {
+  await withCatalog(async (repo) => {
+    const report = await enrichCatalogRecord(repo, registry({}), 'mix_01J9CATALOGUE00000000000040', { sessionId: 'curator-session' });
+    assert.equal(report.state, 'completed');
+    const runs = repo.listEnrichmentRuns('mix_01J9CATALOGUE00000000000040');
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].state, 'completed');
+    assert.ok(runs[0].finishedAt, 'a finished run records when it completed');
+    assert.deepEqual(runs[0].missingFields, report.missingFields);
+  });
+});
+
+test('a provider failure completes the run with recorded errors and does not roll back other results', async () => {
+  await withCatalog(async (repo) => {
+    // A single provider being unreachable is not a run failure: the plan requires
+    // valid results from the other providers to survive, so the run still completes.
+    const degraded = {
+      discovery: new Map(),
+      discogs: {},
+      async search() { throw new Error('provider network unreachable'); }
+    } as unknown as ProviderRegistry;
+    const report = await enrichCatalogRecord(repo, degraded, 'mix_01J9CATALOGUE00000000000040', { sessionId: 'curator-session' });
+    assert.equal(report.state, 'completed');
+    assert.equal(repo.listEnrichmentRuns('mix_01J9CATALOGUE00000000000040')[0].state, 'completed');
+    assert.ok(report.missingFields.length > 0, 'remaining missing fields are reported honestly');
+  });
+});
+
+test('a run that cannot finish is recorded as interrupted, hides internal detail and stays retryable', async () => {
+  await withCatalog(async (repo) => {
+    // A structural failure inside the pass, after the run has been opened. A provider
+    // being unreachable is not such a failure: that completes with recorded errors.
+    const realGetRecord = repo.getRecord.bind(repo);
+    let runOpened = false;
+    const broken = new Proxy(repo, {
+      get(target, property, receiver) {
+        if (property === 'startEnrichmentRun') {
+          runOpened = true;
+          return Reflect.get(target, property, receiver);
+        }
+        if (property === 'getRecord') {
+          return (id: never) => {
+            if (runOpened) throw new Error('database I/O error at /app/data/catalog.sqlite');
+            return realGetRecord(id);
+          };
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      }
+    });
+
+    const report = await enrichCatalogRecord(broken as unknown as typeof repo, registry({}), 'mix_01J9CATALOGUE00000000000040', { sessionId: 'curator-session' });
+    assert.equal(report.state, 'interrupted');
+    // The internal path must not reach the client; only a generic message.
+    const reported = JSON.stringify(report.errors);
+    assert.doesNotMatch(reported, /\/app\/data|catalog\.sqlite/);
+    const run = repo.listEnrichmentRuns('mix_01J9CATALOGUE00000000000040')[0];
+    assert.equal(run.state, 'interrupted');
+    assert.ok(run.finishedAt, 'an interrupted run records when it stopped');
+
+    // The interrupted run must not block a retry: a new run opens afterwards.
+    const retry = await enrichCatalogRecord(repo, registry({}), 'mix_01J9CATALOGUE00000000000040', { sessionId: 'curator-session' });
+    assert.equal(retry.state, 'completed');
+    assert.equal(repo.listEnrichmentRuns('mix_01J9CATALOGUE00000000000040').length, 2);
+  });
+});
+
+test('worker start closes runs left running by a previous process', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'syco23-enrich-stale-'));
+  const dbPath = join(directory, 'catalog.sqlite');
+  try {
+    const first = openCatalog(dbPath);
+    const mix: MixRecord = {
+      kind: 'mix', id: 'mix_01J9CATALOGUE00000000000060', createdAt: timestamp, updatedAt: timestamp,
+      revision: 1, verification: 'source-confirmed', reviewState: 'ready', title: 'Interrupted run',
+      durationMs: 1000, people: [], eventIds: [], genres: [], styles: [], assets: [], sources: []
+    };
+    first.transaction((tx) => tx.saveRecord(mix));
+    first.startEnrichmentRun({
+      id: 'run_stale', recordId: mix.id, attemptedProviders: ['youtube'], actor: 'curator-session', startedAt: timestamp
+    });
+    first.close();
+
+    // Simulate a restart: the run is still 'running' on disk.
+    const reopened = openCatalog(dbPath);
+    assert.equal(reopened.listEnrichmentRuns(mix.id)[0].state, 'running');
+    assert.equal(reopened.interruptStaleEnrichmentRuns(), 1);
+    assert.equal(reopened.listEnrichmentRuns(mix.id)[0].state, 'interrupted');
+    // Idempotent: a second sweep finds nothing left to close.
+    assert.equal(reopened.interruptStaleEnrichmentRuns(), 0);
+    reopened.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('linked Discogs entity IDs hydrate one shared profile and role-specific portrait', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'syco23-entity-enrich-'));
   const repo = openCatalog(join(directory, 'catalog.sqlite'));

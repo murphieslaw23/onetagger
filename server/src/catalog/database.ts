@@ -13,7 +13,8 @@ export function openDatabase(path: string): DatabaseSync {
     { version: 2, file: '002-claims.sql' },
     { version: 3, file: '003-curator-sessions.sql' },
     { version: 4, file: '004-media-assets.sql' },
-    { version: 5, file: '005-migration-batches.sql' }
+    { version: 5, file: '005-migration-batches.sql' },
+    { version: 6, file: '006-enrichment-runs.sql' }
   ];
   for (const migration of migrations) {
     if (currentVersion.user_version >= migration.version) continue;

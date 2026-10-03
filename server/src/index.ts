@@ -3,17 +3,21 @@ import { URL } from 'node:url';
 import { ProviderRegistry } from './core/registry.js';
 import type { ProviderId } from './domain.js';
 import { ArtworkFetchError, fetchProviderArtwork } from './providers/artwork.js';
-import { InMemoryJobQueue } from './jobs/in-memory.js';
+import { InMemoryJobQueue, JobQueueFullError } from './jobs/in-memory.js';
 import { enrichMix } from './core/enrichment.js';
 import { WaveformQueue } from './core/waveform.js';
 import { openCatalog } from './catalog/repository.js';
 import { createCuratorAuth } from './auth/curator.js';
 import { handleAuthRoute } from './auth/routes.js';
 import { handleCatalogRoute } from './catalog/routes.js';
-import { HttpInputError, isAllowedOrigin, readJsonBody } from './http.js';
+import { HttpInputError, isAllowedOrigin, publicErrorMessage, readJsonBody } from './http.js';
 
 const port = Number(process.env.PORT || 8787);
 const catalog = openCatalog(process.env.CATALOG_DB_PATH || './data/catalog.sqlite');
+// Runs left open by a previous process can never finish. Close them out at start so a
+// record is never implicitly "enriching" forever and every interruption is retryable.
+const interruptedRuns = catalog.interruptStaleEnrichmentRuns();
+if (interruptedRuns > 0) console.log(`Closed ${interruptedRuns} interrupted enrichment run(s) from a previous process`);
 const curatorAuth = createCuratorAuth(catalog, process.env.CURATOR_PASSWORD_HASH || '');
 const registry = new ProviderRegistry();
 const queue = new InMemoryJobQueue(registry);
@@ -76,7 +80,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/jobs') {
       const input = await body(req);
       if (!input.provider || (!input.query?.q && !input.query?.url && !input.query?.artist)) return json(req, res, 400, { error: 'provider and query are required' });
-      return json(req, res, 202, queue.create(String(input.provider), input.query));
+      try {
+        return json(req, res, 202, queue.create(String(input.provider), input.query));
+      } catch (error) {
+        if (error instanceof JobQueueFullError) return json(req, res, 429, { error: error.message });
+        throw error;
+      }
     }
     const jobMatch = url.pathname.match(/^\/api\/jobs\/([^/]+)$/);
     if (req.method === 'GET' && jobMatch) {
@@ -184,7 +193,7 @@ const server = http.createServer(async (req, res) => {
     return json(req, res, 404, { error: 'not found' });
   } catch (error) {
     const status = error instanceof HttpInputError ? error.statusCode : 500;
-    return json(req, res, status, { error: error instanceof Error ? error.message : String(error) });
+    return json(req, res, status, { error: publicErrorMessage(error, 'Request failed') });
   }
 });
 

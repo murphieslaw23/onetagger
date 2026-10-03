@@ -1,4 +1,4 @@
-import type { EntityRef, MixSet, ProviderId } from '../domain/types';
+import type { EntityRef, ProviderId } from '../domain/types';
 
 export interface ApiMixCandidate {
   provider: ProviderId;
@@ -129,24 +129,6 @@ export function getProviderHealth() {
   return request<ApiProviderHealth[]>('/providers');
 }
 
-export function enrichMixMetadata(mix: MixSet) {
-  return request<ApiEnrichmentResult>('/enrich', {
-    method: 'POST',
-    body: JSON.stringify({
-      title: mix.title,
-      artists: mix.artists,
-      crews: mix.crews,
-      durationMs: mix.durationMs || undefined,
-      recordedAt: mix.recordedAt,
-      description: mix.description,
-      genres: mix.genres,
-      artwork: mix.artwork,
-      sources: mix.sources,
-      externalIds: mix.externalIds,
-    }),
-  });
-}
-
 export function enrichLocalTrackMetadata(input: LocalTrackEnrichmentInput) {
   return request<ApiEnrichmentResult>('/enrich', {
     method: 'POST',
@@ -189,27 +171,3 @@ export function getWaveformJob(id: string) {
   return request<ApiWaveformJob>(`/waveforms/${encodeURIComponent(id)}`);
 }
 
-export async function previewSoundCloudArtwork(url: string): Promise<{ sourceUrl: string; title?: string; artworkUrl: string }> {
-  const response = await fetch(`${API_BASE}/soundcloud/artwork`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ url }),
-  });
-  const payload = await response.json() as { sourceUrl?: string; title?: string; artworkUrl?: string; error?: string };
-  if (!response.ok || !payload.sourceUrl || !payload.artworkUrl) {
-    throw new Error(payload.error || `SoundCloud artwork lookup failed (${response.status})`);
-  }
-  return { sourceUrl: payload.sourceUrl, title: payload.title, artworkUrl: payload.artworkUrl };
-}
-
-export async function previewPublicArtwork(provider: 'soundcloud' | 'youtube' | 'hearthis', url: string): Promise<{ provider: ProviderId; sourceUrl: string; title?: string; artworkUrl: string }> {
-  const response = await fetch(`${API_BASE}/artwork/preview`, {
-    method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider, url }),
-  });
-  const payload = await response.json() as { provider?: ProviderId; sourceUrl?: string; title?: string; artworkUrl?: string; error?: string };
-  if (!response.ok || !payload.sourceUrl || !payload.artworkUrl || !payload.provider) {
-    throw new Error(payload.error || `Artwork lookup failed (${response.status})`);
-  }
-  return { provider: payload.provider, sourceUrl: payload.sourceUrl, title: payload.title, artworkUrl: payload.artworkUrl };
-}

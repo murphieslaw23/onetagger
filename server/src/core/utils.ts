@@ -1,15 +1,35 @@
 import type { MixCandidate } from '../domain.js';
 
+/**
+ * File formats are technical noise and never carry identity.
+ * `live`, `dj` and `set` are meaningful descriptors ("Live at Wacken", "DJ Koalisson",
+ * "DJ set") and must survive normalization, because they distinguish one recording
+ * from another. Only the `mix` family describes the uploaded artifact rather than
+ * the recording, and is dropped in trailing position.
+ */
+const alwaysNoise = new Set(['mp3', 'flac', 'wav', 'ogg', 'aiff', 'm4a', 'aif', 'opus']);
+const trailingNoise = new Set(['mix', 'mixset', 'mixsets']);
+
 export function normalizeQuery(value = ''): string {
-  return value
+  const cleaned = value
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/https?:\/\/\S+/g, ' ')
-    .replace(/[_./\\()[\]{}|:+-]+/g, ' ')
-    .replace(/\b(mp3|flac|wav|ogg|aiff|m4a|mix|live|set|dj)\b/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/[_./\\()[\]{}|:+-]+/g, ' ');
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  const kept = tokens.filter((token, index) => {
+    if (alwaysNoise.has(token)) return false;
+    if (trailingNoise.has(token) && index === tokens.length - 1 && hasMeaningfulPrefix(tokens, index)) return false;
+    return true;
+  });
+  return kept.join(' ').trim();
+}
+
+function hasMeaningfulPrefix(tokens: string[], index: number): boolean {
+  // Only strip a trailing artifact word when something meaningful precedes it,
+  // so a title that is literally just "Mix" is not emptied out.
+  return tokens.slice(0, index).some((token) => !alwaysNoise.has(token) && !trailingNoise.has(token));
 }
 
 export function tokenSet(value = ''): Set<string> {

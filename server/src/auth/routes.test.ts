@@ -72,6 +72,32 @@ test('auth route input has a hard byte limit', async () => {
   }
 });
 
+test('login failure responses never expose internal error detail', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'syco23-auth-routes-'));
+  const repo = openCatalog(join(directory, 'catalog.sqlite'));
+  const priorOrigin = process.env.CORS_ORIGIN;
+  process.env.CORS_ORIGIN = 'https://mixsets.example.org';
+  try {
+    // An authentication backend that throws must not leak its message or stack.
+    const auth = {
+      login(): string { throw new Error('ENOENT: /srv/secret/curator.env ENOTFOUND db.internal'); },
+      authenticate() { return undefined; },
+      logout() { return ''; }
+    } as unknown as ReturnType<typeof createCuratorAuth>;
+    const response = mockResponse();
+    await handleAuthRoute({ auth }, mockRequest('POST', '/api/auth/login', { password: 'private-local-password' }, { origin: 'https://mixsets.example.org' }), response.response);
+    assert.equal(response.captured.status, 500);
+    const body = JSON.parse(response.captured.body ?? '{}') as { error?: string };
+    assert.equal(body.error, 'Login failed');
+    assert.doesNotMatch(response.captured.body ?? '', /ENOENT|db\.internal|\/srv\//);
+  } finally {
+    if (priorOrigin === undefined) delete process.env.CORS_ORIGIN;
+    else process.env.CORS_ORIGIN = priorOrigin;
+    repo.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('development defaults allow only the two local Vite origins', () => {
   const previousOrigin = process.env.CORS_ORIGIN;
   const previousNodeEnv = process.env.NODE_ENV;

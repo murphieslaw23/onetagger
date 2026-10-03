@@ -60,3 +60,21 @@ export function sendJson(response: ServerResponse, status: number, body: unknown
   });
   response.end(payload);
 }
+
+/**
+ * Errors that are safe to describe to a client. Anything else is logged
+ * server-side and reported as a generic failure, so internal details such as
+ * file paths, SQL fragments or dependency messages never reach a response body.
+ */
+export function publicErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof HttpInputError) return error.message;
+  if (error instanceof Error && error.name === 'ZodError') return 'Input validation failed';
+  if (error && typeof error === 'object' && 'statusCode' in error) {
+    const statusCode = (error as { statusCode: unknown }).statusCode;
+    if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
+      return error instanceof Error ? error.message : fallback;
+    }
+  }
+  console.error('Unhandled request failure:', error);
+  return fallback;
+}
