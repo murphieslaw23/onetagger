@@ -39,7 +39,7 @@ type YoutubeSnippet = {
 function videoIdentity(title: string, channel: string): { title: string; artists: string[] } {
   const match = title.match(/^([^–—-]{2,60})\s+[–—-]\s+(.+)$/);
   return match ? { title: match[2].trim(), artists: [match[1].trim()] }
-    : { title, artists: channel ? [channel] : [] };
+    : { title, artists: [] };
 }
 
 export class YouTubeProvider implements DiscoveryProvider {

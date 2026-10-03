@@ -1,4 +1,6 @@
 import type { EntityRef, ProviderHealth } from '../domain.js';
+import { cleanProfile, type ProviderMetadata } from '../catalog/provider-claims.js';
+import { HttpUrlSchema } from '@syco23/mixsets-domain';
 import { retry, withTimeout } from '../core/utils.js';
 
 const API = 'https://api.discogs.com/';
@@ -30,6 +32,29 @@ export class DiscogsEnricher {
     } catch (error) {
       return { id: this.id, state: 'offline', detail: String(error), checkedAt: new Date().toISOString() };
     }
+  }
+
+  async hydrateEntity(id:string,kind:'artist'|'label',signal?:AbortSignal):Promise<ProviderMetadata>{
+    if(!/^\d+$/.test(id))throw new Error('Invalid Discogs entity ID');
+    const payload=await retry(()=>withTimeout(async(inner)=>{
+      const response=await fetch(new URL(`${kind==='label'?'labels':'artists'}/${id}`,API),{signal:inner,headers:this.headers()});
+      if(!response.ok)throw new Error(`Discogs entity ${response.status}`);
+      return response.json() as Promise<Record<string,any>>;
+    },12000,signal));
+    if(String(payload.id)!==id)throw new Error('Discogs returned a different entity identity');
+    const resource={provider:'discogs' as const,resourceType:kind,externalId:id,url:`https://www.discogs.com/${kind}/${id}`};
+    const facts:ProviderMetadata['facts']={},relationships:ProviderMetadata['relationships']=[];
+    if(payload.profile?.trim())facts.profile=cleanProfile(payload.profile);
+    if(kind==='artist'&&payload.realname?.trim())facts.realName=payload.realname.trim();
+    const urls=(payload.urls||[]).filter((url:unknown)=>HttpUrlSchema.safeParse(url).success);if(urls.length)facts.websites=urls.slice(0,30);
+    const image=payload.images?.find((image:Record<string,unknown>)=>HttpUrlSchema.safeParse(image.uri).success)?.uri;
+    if(image)facts[kind==='artist'?'portrait':'labelLogo']={url:image,kind:kind==='artist'?'portrait':'label-logo',source:'discogs',sourceUrl:resource.url};
+    if(payload.aliases?.length)facts.aliases=payload.aliases.map((alias:Record<string,any>)=>alias.name).filter(Boolean);
+    if(kind==='label'&&payload.contact_info?.trim())facts.contactInfo=payload.contact_info.trim();
+    const add=(items:Record<string,any>[],relation:ProviderMetadata['relationships'][number]['relation'],resourceType:'artist'|'label')=>{for(const item of items||[])if(item.name&&Number.isSafeInteger(Number(item.id)))relationships.push({name:item.name,externalId:String(item.id),resourceType,relation});};
+    add(payload.aliases,'alias-of','artist');add(payload.groups,'member-of','artist');add(payload.members,'member','artist');
+    if(payload.parent_label)add([payload.parent_label],'parent-label','label');add(payload.sublabels,'sub-label','label');
+    return {resource,name:payload.name||id,facts,relationships};
   }
 
   async enrichEntity(name: string, kind: 'artist' | 'crew' | 'label', signal?: AbortSignal): Promise<EntityRef[]> {

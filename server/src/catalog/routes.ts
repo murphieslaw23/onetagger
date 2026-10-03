@@ -2,6 +2,7 @@ import type { IncomingMessage,ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { ProviderIdSchema,HttpUrlSchema,CatalogRecordSchema,FieldClaimSchema,editableFields,validateField,type CatalogDetail,type IndexKind } from '@syco23/mixsets-domain';
 import { body,json,requireCurator,HttpError,type ApiContext } from '../http.js';
+import { enrichCatalogRecord } from './enrich.js';
 import { importCandidate } from './identity.js';
 import { pendingReviewCount,valueKey } from './merge.js';
 import { listReview,decideReview,mergeRecords } from './review.js';
@@ -18,6 +19,8 @@ export async function handleCatalogRoute(context:ApiContext,req:IncomingMessage,
  if(req.method==='GET'&&index){const query=z.object({q:z.string().max(1000).optional(),offset:z.coerce.number().int().nonnegative().default(0),limit:z.coerce.number().int().min(1).max(50).default(50)}).parse(Object.fromEntries(url.searchParams));reply(200,repo.listIndex(index[1] as IndexKind,{...query,includeProposed:!!actor&&url.searchParams.get('includeProposed')==='true'}));return true;}
  const record=path.match(/^\/api\/catalog\/records\/([^/]+)$/);
  if(req.method==='GET'&&record){const detail=repo.getRecord(decodeURIComponent(record[1]));if(!detail||(!actor&&detail.record.verification==='proposed'))throw new HttpError(404,'Record not found');reply(200,actor?detail:publicDetail(detail));return true;}
+ const enrichment=path.match(/^\/api\/catalog\/records\/([^/]+)\/enrich$/);
+ if(req.method==='POST'&&enrichment){reply(200,await enrichCatalogRecord(repo,context.registry,decodeURIComponent(enrichment[1]),requireCurator(context,req)));return true;}
  if(req.method==='POST'&&path==='/api/catalog/import'){reply(200,importCandidate(repo,CandidateSchema.parse(await body(req)),requireCurator(context,req)));return true;}
  if(req.method==='PATCH'&&record){
   const curator=requireCurator(context,req),input=z.object({revision:z.number().int().positive(),fields:z.record(z.string(),z.json())}).strict().parse(await body(req));

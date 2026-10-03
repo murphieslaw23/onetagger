@@ -112,20 +112,20 @@ export class SoundCloudProvider implements DiscoveryProvider {
       const scored = confidenceScore({
         query: q,
         title: track.title,
-        artist: user.username,
+        artist: track.metadata_artist,
         durationExpectedMs: query.durationExpectedMs,
         durationActualMs: track.duration,
       });
       return {
         provider: this.id,
         title: track.title || 'Untitled SoundCloud mix',
-        artists: user.username ? [user.username] : [],
+        artists: track.metadata_artist ? [String(track.metadata_artist)] : [],
         crews: [],
         durationMs: track.duration,
         // created_at is the upload date, not necessarily the mix recording date.
         description: track.description,
         genres: [track.genre, ...(Array.isArray(track.tag_list) ? track.tag_list : String(track.tag_list || '').split(/\s+/))].filter(Boolean),
-        artwork: track.artwork_url ? [track.artwork_url] : [],
+        artwork: /^https:\/\/[^/]*\.sndcdn\.com\/artworks-/.test(track.artwork_url || '') ? [track.artwork_url] : [],
         source: { provider: this.id, url: track.permalink_url, externalId: track.urn || String(track.id || '') },
         externalIds: { soundcloud: track.urn || String(track.id || '') },
         confidence: scored.score,

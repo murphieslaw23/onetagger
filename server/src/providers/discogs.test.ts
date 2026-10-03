@@ -24,3 +24,10 @@ test('Discogs hydrates a unique exact artist from its entity endpoint', async (c
   assert.equal(result[0].url, 'https://www.discogs.com/artist/24216-Metek');
   assert.equal(result[1].profile, undefined);
 });
+
+test('Discogs ID hydration separates artist relationships and label hierarchy',async(context)=>{
+ context.mock.method(globalThis,'fetch',async(input:string|URL|Request)=>String(input).includes('/labels/')?Response.json({id:2,name:'Label',profile:'A [a=Kan10] label',parent_label:{id:3,name:'Parent'},sublabels:[{id:4,name:'Child'}]}):Response.json({id:1,name:'Kan10',realname:'Real Name',profile:'Member of [a=Mackitek]',urls:['https://kan10.example'],aliases:[{id:7,name:'Alias'}],groups:[{id:8,name:'Mackitek'}],members:[{id:9,name:'Member'}],images:[{uri:'https://i.discogs.com/portrait.jpg'}]}));
+ const provider=new DiscogsEnricher();assert.ok('hydrateEntity' in provider);
+ const artist=await provider.hydrateEntity('1','artist');assert.equal(artist.facts.realName,'Real Name');assert.equal(artist.facts.profile,'Member of Mackitek');assert.deepEqual(artist.facts.aliases,['Alias']);assert.equal(artist.relationships.length,3);
+ const label=await provider.hydrateEntity('2','label');assert.equal(label.relationships[0].relation,'parent-label');assert.equal(label.relationships[1].relation,'sub-label');
+});

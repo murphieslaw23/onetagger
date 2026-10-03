@@ -83,7 +83,7 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
   const candidates: MixCandidate[] = [];
 
   const discoveryTasks = [...registry.discovery.entries()]
-    .filter(([provider]) => !existingProviders.has(provider as ProviderId))
+
     .map(async ([providerId, provider]) => {
       const id = providerId as ProviderId;
       const query = providerQuery(id, input);

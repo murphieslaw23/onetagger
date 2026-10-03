@@ -1,0 +1,12 @@
+import { z } from 'zod';
+import { ProviderRefSchema,FieldClaimSchema,type CatalogDetail,type FieldClaim } from '@syco23/mixsets-domain';
+export const ProviderMetadataSchema=z.object({resource:ProviderRefSchema,name:z.string().min(1).max(1000),facts:z.record(z.string(),z.json()),relationships:z.array(z.object({name:z.string().min(1).max(1000),externalId:z.string().min(1).max(512),resourceType:z.enum(['artist','label']),relation:z.enum(['alias-of','member','member-of','parent-label','sub-label'])})).max(200).default([]),parsed:z.array(z.object({field:z.string(),value:z.json(),excerpt:z.string().max(4000)})).max(30).default([])}).strict();
+export interface ProviderMetadata {resource:z.infer<typeof ProviderRefSchema>;name:string;facts:Record<string,z.infer<ReturnType<typeof z.json>>>;relationships:Array<{name:string;externalId:string;resourceType:'artist'|'label';relation:'alias-of'|'member'|'member-of'|'parent-label'|'sub-label'}>;parsed?:Array<{field:string;value:z.infer<ReturnType<typeof z.json>>;excerpt:string}>}
+export function cleanProfile(value:string):string{return value.replace(/\[(?:a|l|m|r)=([^\]]+)\]/gi,'$1').replace(/\[url=([^\]]+)\]([^[]*)\[\/url\]/gi,'$2 ($1)').replace(/\[\/?(?:b|i|u|url)\]/gi,'').trim();}
+export function claimsFromProvider(target:CatalogDetail,result:ProviderMetadata):FieldClaim[]{
+ const parsed=ProviderMetadataSchema.parse(result),known=target.record.sources.some(ref=>ref.provider===parsed.resource.provider&&ref.resourceType===parsed.resource.resourceType&&ref.externalId&&ref.externalId===parsed.resource.externalId);
+ const base={targetRecordId:target.record.id,provider:parsed.resource.provider,sourceUrl:parsed.resource.url,resource:parsed.resource,observedAt:new Date().toISOString(),evidence:'direct',match:known?'confirmed':'review',confidence:known?.99:.7,state:'pending',reason:known?'Hydrated confirmed provider identity':'Name match is a proposed identity; confirm its source in Review'};
+ const claims=[FieldClaimSchema.parse({...base,field:'sources',value:[parsed.resource]}),...Object.entries(parsed.facts).filter(([,v])=>v!==null&&v!==''&&!(Array.isArray(v)&&!v.length)).map(([field,value])=>FieldClaimSchema.parse({...base,field,value}))];
+ for(const proposal of parsed.parsed)claims.push(FieldClaimSchema.parse({...base,...proposal,evidence:'parsed',match:'review',reason:'Free-text statement requires curator interpretation'}));
+ return claims;
+}
