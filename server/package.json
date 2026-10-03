@@ -15,7 +15,8 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "@syco23/mixsets-domain": "workspace:*"
+    "@syco23/mixsets-domain": "workspace:*",
+    "zod": "^4.6.5"
   },
   "files": [
     "dist"

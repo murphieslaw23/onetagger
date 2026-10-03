@@ -66,6 +66,9 @@ importers:
       '@syco23/mixsets-domain':
         specifier: workspace:*
         version: link:../packages/domain
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
     devDependencies:
       '@types/node':
         specifier: ^24.5.2
