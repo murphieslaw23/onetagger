@@ -2,7 +2,7 @@
 
 Date: 2026-10-03
 
-Status: conversational design approved; written specification awaiting review.
+Status: conversational design and written specification approved by the user.
 
 ## Outcome
 
@@ -16,7 +16,7 @@ The dataset may contain missing fields when reliable sources do not provide them
 - The Node worker has discovery adapters for Freeteknomusic, Archive.org, SoundCloud, YouTube and hearthis.at, plus Discogs entity enrichment. It has no persistent catalog or separate entity indexes.
 - The existing browser duplicate check includes a provider-unscoped external ID comparison. This can confuse unrelated records from different providers.
 - Discogs artist and label endpoints provide entity profiles, images and explicit entity references. An artist portrait is separate from mix artwork; release country is separate from an artist/crew/label's country.
-- SoundCloud public-link artwork lookup works without app credentials. Its official search requires OAuth credentials, including a client secret. A client ID alone returned HTTP 401 during this audit.
+- SoundCloud public-link artwork lookup works without app credentials. Its [official search requires OAuth credentials, including a client secret](https://developers.soundcloud.com/docs/api/guide#client-credentials-token-exchange-flow). A client ID alone returned HTTP 401 during this audit.
 - The supplied YouTube key passed lookup and search checks and is configured privately on VPS-L. A production enrichment request for Kan10 / Live Mackitek Koalisson III returned its matching video cover, source ID and Discogs artist profile. The supplied replacement Discogs token returned HTTP 401; the existing authenticated token was preserved.
 - Both production domains and the frontend-to-API CORS origin were verified. Provider credentials remain on the worker and must never enter frontend configuration, raw claim payloads or logs.
 
