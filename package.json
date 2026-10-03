@@ -1,0 +1,13 @@
+{
+  "name": "syco23-mixsets",
+  "private": true,
+  "version": "0.1.0",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "dev:web": "pnpm --dir client dev",
+    "dev:api": "pnpm --dir server dev",
+    "build": "pnpm --dir client build && pnpm --dir server build",
+    "test": "pnpm --dir server test",
+    "typecheck": "pnpm --dir client exec vue-tsc --noEmit && pnpm --dir server typecheck"
+  }
+}

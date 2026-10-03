@@ -1,85 +1,50 @@
-<p align='center'>
-    <img alt='Logo' src='https://raw.githubusercontent.com/Marekkon5/onetagger/master/assets/onetagger-logo-github.png'>
-</p>
-<h1 align='center'>The ultimate cross-platform tagger for DJs</h1>
+# SYCO23 Mixsets
 
-<h3 align='center'><b>
-<a href='https://onetagger.github.io/'>Website</a> | <a href='https://github.com/Marekkon5/onetagger/releases/'>Latest Release</a>
-</b></h3>
-<br>
+A long-form DJ/live-mix archive manager derived from the provider and review ideas in [OneTagger](https://github.com/Marekkon5/onetagger), rebuilt for one-to-two-hour mixes instead of individual track tagging.
 
-<p align='center'>
-    <img alt='Version Badge' src='https://img.shields.io/github/v/release/marekkon5/onetagger?label=Latest%20Release'>
-    <img alt='Supported OS' src='https://img.shields.io/badge/OS-Windows%2C%20Mac%20OS%2C%20Linux-orange'>
-    <img alt='Build Status' src='https://img.shields.io/github/actions/workflow/status/marekkon5/onetagger/build.yml?branch=master'>
-</p>
+## Product model
 
-<h3 align='center'><b></b></h3>
-<hr>
+SYCO23 Mixsets treats each recording as a durable `MixSet` with canonical artist / crew / event metadata, long-form duration, multiple public sources, field provenance, confidence and reviewable enrichment candidates.
 
-Cross-platform music tagger.
-It can fetch metadata from Beatport, Traxsource, Juno Download, Discogs, Musicbrainz and Spotify.
-It is also able to fetch Spotify's Audio Features based on ISRC & exact match. 
-There is a manual tag editor and quick tag editor which lets you use keyboard shortcuts. Written in Rust, Vue.js and Quasar.
+The active web product no longer contains OneTagger's AutoTagger, QuickTag, track renamer, Spotify AudioFeatures or desktop WebView/socket flows.
 
-MP3, AIFF, FLAC, M4A (AAC, ALAC) supported.
+## Providers
 
-*For more info and tutorials check out our [website](https://onetagger.github.io/).*
+- **archive.freeteknomusic.org** — bounded HTTP directory crawler; never treated as FTP and never downloads complete audio just to discover metadata.
+- **SoundCloud** — official API only; long-form discovery uses duration filtering and `SOUNDCLOUD_ACCESS_TOKEN`.
+- **Internet Archive** — Advanced Search + Metadata API.
+- **Discogs** — artist / crew-like artist / label enrichment and images, not long-mix track matching.
 
-https://user-images.githubusercontent.com/15169286/193469224-cbf3af71-f6d7-4ecd-bdbf-5a1dca2d99c8.mp4
+See [docs/PROVIDERS.md](docs/PROVIDERS.md).
 
+## Local development
 
-## Installing
-
-You can download latest binaries from [releases](https://github.com/Marekkon5/onetagger/releases)
-
-
-## Credits
-Bas Curtiz - UI, Idea, Help  
-SongRec (Shazam support) - https://github.com/marin-m/SongRec
-
-## Support
-You can support this project by donating on [PayPal](https://paypal.me/marekkon5) or [Patreon](https://www.patreon.com/onetagger)
-
-## Compilling
-
-### Linux & Mac
-Install dependencies: [rustup](https://rustup.rs), [node](https://nodejs.org/en/download/package-manager/), [pnpm](https://pnpm.io/installation)
-
-**Install remaining dependencies**
-```
-sudo apt install -y lld autogen libasound2-dev pkg-config make libssl-dev gcc g++ curl wget git libwebkit2gtk-4.1-dev
+```bash
+pnpm install
+cp .env.example .env
+pnpm dev:api
+# second terminal
+pnpm dev:web
 ```
 
-**Compile UI**
-```
-cd client
-pnpm i
-pnpm run build
-cd ..
+Web: http://localhost:5173
+
+API: http://localhost:8787
+
+Fixture data is included so the UI remains useful without provider credentials.
+
+## Validation
+
+```bash
+pnpm typecheck
+pnpm test
+pnpm build
 ```
 
-**Compile**
-```
-cargo build --release
-```
-Output will be in: `target/release/onetagger`
+## Architecture
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/MIGRATION_FROM_ONETAGGER.md](docs/MIGRATION_FROM_ONETAGGER.md).
 
-### Windows
-You need to install dependencies: [rustup](https://rustup.rs), [nodejs](https://nodejs.org/en/download/), [Visual Studio 2019 Build Tools](https://aka.ms/vs/16/release/vs_buildtools.exe), [pnpm](https://pnpm.io/installation)
+## License and attribution
 
-**Compile UI:**
-```
-cd client
-pnpm i
-pnpm run build
-cd ..
-```
-
-**Compile OneTagger:**
-```
-cargo build --release
-```
-
-Output will be inside `target\release` folder.
+This repository is a fork of OneTagger by Marekkon5 and contributors and retains the upstream **GPL-3.0** license. The SYCO23 branch replaces the active desktop/track product with a web-focused long-form mix manager while preserving attribution and the fork's license obligations.
