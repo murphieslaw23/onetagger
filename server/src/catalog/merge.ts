@@ -37,12 +37,13 @@ export function applyClaims(repo:CatalogRepository,inputs:FieldClaim[]):Enrichme
   const disposition:FieldClaim['state']=equal?'corroborated':permitted&&(isMissing(current)||additive)?'selected':'pending';
   claim=tx.saveClaim({...claim,state:disposition});
   // Persisted rejection/selection wins over a repeated provider observation.
+  if(claim.state==='pending'&&disposition==='selected'){tx.db.prepare("UPDATE field_claims SET disposition='selected',match_state='confirmed',reason=?,record_revision=? WHERE id=?").run(input.reason,record.revision,claim.id!);claim=tx.getClaim(claim.id!)!;}
   if(claim.state!==disposition)return;
   if(claim.state==='corroborated'){corroborated.push(claim.field);return;}
   if(claim.state==='selected'){
    let selected=value;
    if(additive&&Array.isArray(current)&&Array.isArray(value))selected=claim.field==='aliases'?normalizedSet([...current,...value] as string[]):[...current,...value];
-   record=CatalogRecordSchema.parse({...record,[claim.field]:selected,revision:record.revision+1,updatedAt:new Date().toISOString()});
+   record=CatalogRecordSchema.parse({...record,[claim.field]:selected,reviewState:pendingReviewCount(tx,record.id)?'review':'ready',revision:record.revision+1,updatedAt:new Date().toISOString()});
    record=tx.saveRecord(record,record.revision-1);
    tx.selectEvidence(record.id,claim.field,claim.id!);
    applied.push(claim.field);

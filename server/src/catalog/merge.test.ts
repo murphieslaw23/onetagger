@@ -34,3 +34,7 @@ test('parsed facts remain review proposals even when the canonical field is miss
   assert.equal(repo.listClaims('mix')[0].state,'pending');
  }finally{repo.close();}
 });
+
+test('confirming an identity unlocks its pending direct metadata while a rejection stays rejected',()=>{
+ const repo=openCatalog(':memory:');try{repo.saveRecord(artist());const pending=claim('artist','profile','Confirmed biography');module!.applyClaims(repo,[{...pending,match:'review'}]);assert.equal((repo.loadRecord('artist') as ReturnType<typeof artist>).profile,undefined);module!.applyClaims(repo,[{...pending,match:'confirmed'}]);assert.equal((repo.loadRecord('artist') as ReturnType<typeof artist>).profile,'Confirmed biography');}finally{repo.close();}
+});

@@ -1,4 +1,7 @@
 import type { IncomingMessage,ServerResponse } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { waveformPath } from './media.js';
+import { migrateLegacyLibrary } from './migration.js';
 import { z } from 'zod';
 import { ProviderIdSchema,HttpUrlSchema,CatalogRecordSchema,FieldClaimSchema,editableFields,validateField,type CatalogDetail,type IndexKind } from '@syco23/mixsets-domain';
 import { body,json,requireCurator,HttpError,type ApiContext } from '../http.js';
@@ -14,6 +17,11 @@ export function publicDetail(detail:CatalogDetail):CatalogDetail{
 export async function handleCatalogRoute(context:ApiContext,req:IncomingMessage,res:ServerResponse):Promise<boolean>{
  const url=new URL(req.url!,'http://localhost'),path=url.pathname,repo=context.catalog,actor=context.auth.authenticate(req);
  const reply=(status:number,value:unknown)=>json(context,req,res,status,value);
+ const media=path.match(/^\/api\/catalog\/media\/([a-f0-9]{64})$/);
+ if(req.method==='GET'&&media){let recordId=repo.mediaAsset(media[1])?.recordId;if(!recordId&&actor){const pending=repo.db.prepare("SELECT record_id FROM field_claims WHERE field='waveform' AND json_extract(value_json,'$.url')=? AND disposition='pending'").get(path);recordId=pending?String(pending.record_id):undefined;}
+  const record=recordId&&repo.loadRecord(recordId);if(!record||(!actor&&record.verification==='proposed'))throw new HttpError(404,'Media not found');const bytes=readFileSync(waveformPath(repo,media[1]));res.writeHead(200,{'content-type':'image/png','content-length':bytes.length,'cache-control':'public, max-age=86400','x-content-type-options':'nosniff'});res.end(bytes);return true;
+ }
+ if(req.method==='POST'&&path==='/api/catalog/migrate'){const input=z.object({batchId:z.string().min(1).max(1000),records:z.array(z.unknown()).max(500)}).strict().parse(await body(req));reply(200,migrateLegacyLibrary(repo,input.records,input.batchId,requireCurator(context,req)));return true;}
  if(req.method==='GET'&&path==='/api/catalog/review'){requireCurator(context,req);reply(200,listReview(repo));return true;}
  const index=path.match(/^\/api\/catalog\/(mix|artist|crew|label|event)$/);
  if(req.method==='GET'&&index){const query=z.object({q:z.string().max(1000).optional(),offset:z.coerce.number().int().nonnegative().default(0),limit:z.coerce.number().int().min(1).max(50).default(50)}).parse(Object.fromEntries(url.searchParams));reply(200,repo.listIndex(index[1] as IndexKind,{...query,includeProposed:!!actor&&url.searchParams.get('includeProposed')==='true'}));return true;}

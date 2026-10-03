@@ -22,6 +22,8 @@ ENV PORT=8787
 
 COPY --from=build --chown=node:node /runtime ./
 
+RUN mkdir -p /app/data && chown node:node /app/data
+
 USER node
 EXPOSE 8787
 

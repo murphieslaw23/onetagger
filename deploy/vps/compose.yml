@@ -23,12 +23,16 @@ services:
     environment:
       PORT: 8787
       NODE_ENV: production
+      CATALOG_PATH: /app/data/catalog.sqlite
+      CURATOR_PASSWORD_HASH: ${CURATOR_PASSWORD_HASH:-}
       CORS_ORIGIN: ${CORS_ORIGIN:-https://mixsets.syco23.org,https://syco23-mixsets.vercel.app,https://syco23-mixsets-system-corrupt.vercel.app}
       SOUNDCLOUD_ACCESS_TOKEN: ${SOUNDCLOUD_ACCESS_TOKEN:-}
       SOUNDCLOUD_CLIENT_ID: ${SOUNDCLOUD_CLIENT_ID:-}
       SOUNDCLOUD_CLIENT_SECRET: ${SOUNDCLOUD_CLIENT_SECRET:-}
       DISCOGS_TOKEN: ${DISCOGS_TOKEN:-}
       YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+    volumes:
+      - catalog:/app/data
     ports:
       - "127.0.0.1:8793:8787"
     networks:
@@ -53,3 +57,7 @@ networks:
   proxy:
     external: true
     name: syco23-ftm_default
+
+volumes:
+  catalog:
+    name: syco23-mixsets-catalog

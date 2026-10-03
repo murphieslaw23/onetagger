@@ -13,7 +13,7 @@ import { json as respond, body, requireCurator, requireOrigin, HttpError, type A
 const SearchSchema=z.object({q:z.string().max(1000).optional(),url:HttpUrlSchema.optional(),artist:z.string().max(1000).optional(),crew:z.string().max(1000).optional(),minDurationMs:z.number().int().nonnegative().max(604800000).optional(),durationExpectedMs:z.number().int().positive().max(604800000).optional(),maxDepth:z.number().int().min(0).max(10).optional(),maxItems:z.number().int().min(1).max(2500).optional(),limit:z.number().int().min(1).max(100).optional()}).strict().refine(v=>v.q||v.url||v.artist,'Search text or source URL is required');
 const EnrichSchema=z.object({title:z.string().trim().min(1).max(1000),artists:z.array(z.string().max(1000)).max(100),crews:z.array(z.string().max(1000)).max(100).optional(),durationMs:z.number().int().positive().max(604800000).optional(),recordedAt:z.string().max(100).optional(),description:z.string().max(100000).optional(),genres:z.array(z.string().max(1000)).max(100).optional(),artwork:z.array(z.object({url:HttpUrlSchema,provider:ProviderIdSchema.optional(),kind:z.enum(['cover','artist','crew']).optional()})).max(10).optional(),sources:z.array(z.object({provider:ProviderIdSchema,url:HttpUrlSchema,externalId:z.string().max(512).optional()})).max(100).optional(),externalIds:z.record(z.string(),z.string().max(512)).optional()}).strip();
 export function createApiServer(options:{catalog:CatalogRepository,passwordHash:string,origins:string[],registry?:ProviderRegistry,secureCookies?:boolean}){
- const registry=options.registry||new ProviderRegistry(),queue=new InMemoryJobQueue(registry),waveformQueue=new WaveformQueue();
+ const registry=options.registry||new ProviderRegistry(),queue=new InMemoryJobQueue(registry),waveformQueue=new WaveformQueue(options.catalog);
  const context:ApiContext={catalog:options.catalog,auth:createCuratorAuth(options.catalog,options.passwordHash,options.secureCookies!==false),registry,origins:options.origins.filter(origin=>origin!=='*')};
  const json=(req:http.IncomingMessage,res:http.ServerResponse,status:number,value:unknown)=>respond(context,req,res,status,value);
  return http.createServer(async(req,res)=>{
@@ -59,7 +59,7 @@ export function createApiServer(options:{catalog:CatalogRepository,passwordHash:
     if (req.method === 'POST' && url.pathname === '/api/waveforms') {
       const input = z.record(z.string(), z.any()).parse(await body(req));
       if (typeof input.sourceUrl !== 'string' || input.sourceUrl.length > 2048) return json(req, res, 400, { error: 'A direct public audio URL is required' });
-      try { return json(req, res, 202, waveformQueue.create(input.sourceUrl)); }
+      try { return json(req, res, 202, waveformQueue.create(input.sourceUrl,z.string().min(1).max(1000).parse(input.mixId))); }
       catch (error) { return json(req, res, 422, { error: error instanceof Error ? error.message : String(error) }); }
     }
     const waveformMatch = url.pathname.match(/^\/api\/waveforms\/([^/]+)$/);

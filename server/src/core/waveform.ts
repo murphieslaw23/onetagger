@@ -1,3 +1,5 @@
+import type { CatalogRepository } from '../catalog/repository.js';
+import { persistWaveform } from '../catalog/media.js';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
@@ -11,6 +13,8 @@ const TIMEOUT_MS = 5 * 60_000;
 export interface WaveformJob {
   id: string;
   sourceUrl: string;
+  mixId?: string;
+  assetUrl?: string;
   state: 'queued' | 'running' | 'done' | 'error';
   progress: number;
   imageDataUrl?: string;
@@ -120,18 +124,36 @@ async function analyze(job: WaveformJob): Promise<void> {
 export class WaveformQueue {
   private readonly jobs = new Map<string, WaveformJob>();
 
-  create(sourceUrl: string): WaveformJob {
+  constructor(private catalog?:CatalogRepository){
+    if(catalog){
+      catalog.db.exec("CREATE TABLE IF NOT EXISTS waveform_jobs(id TEXT PRIMARY KEY,record_id TEXT NOT NULL REFERENCES catalog_records(id),job_json TEXT NOT NULL) STRICT");
+      for(const row of catalog.db.prepare('SELECT job_json FROM waveform_jobs ORDER BY rowid DESC LIMIT 16').all()){
+        const job=JSON.parse(String(row.job_json)) as WaveformJob;
+        if(job.state==='running'||job.state==='queued'){job.state='error';job.error='Audio analysis was interrupted by worker restart; retry analysis';this.save(job);}
+        this.jobs.set(job.id,job);
+      }
+    }
+  }
+  private save(job:WaveformJob){if(this.catalog&&job.mixId)this.catalog.db.prepare('INSERT INTO waveform_jobs(id,record_id,job_json) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET job_json=excluded.job_json').run(job.id,job.mixId,JSON.stringify(job));}
+
+  create(sourceUrl: string,mixId?:string): WaveformJob {
     allowedAudioUrl(sourceUrl);
+    if(this.catalog&&(!mixId||this.catalog.loadRecord(mixId)?.category!=='mix'))throw new Error('Select an indexed mix before analysis');
     if ([...this.jobs.values()].some((job) => job.state === 'running' || job.state === 'queued')) {
       throw new Error('An audio analysis is already running; retry when it finishes');
     }
-    const job: WaveformJob = { id: randomUUID(), sourceUrl, state: 'queued', progress: 0 };
+    const job: WaveformJob = { id: randomUUID(), sourceUrl, mixId, state: 'queued', progress: 0 };
     this.jobs.set(job.id, job);
     if (this.jobs.size > 16) {
       const oldest = this.jobs.keys().next().value;
       if (oldest) this.jobs.delete(oldest);
     }
-    void analyze(job);
+    this.save(job);
+    void analyze(job).then(()=>{
+      try{if(job.state==='done'&&this.catalog&&job.mixId&&job.imageDataUrl){const detail=persistWaveform(this.catalog,job.mixId,Buffer.from(job.imageDataUrl.slice(22),'base64'),job.sourceUrl);if(detail.record.category==='mix')job.assetUrl=detail.record.waveform?.url;delete job.imageDataUrl;}}
+      catch(error){job.state='error';job.error=error instanceof Error?error.message:'Waveform could not be saved';}
+      finally{this.save(job);}
+    });
     return job;
   }
 
