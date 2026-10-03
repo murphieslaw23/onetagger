@@ -1,6 +1,6 @@
 import { computed, reactive, watch } from 'vue';
 import { mixes as initialMixes, providerHealth } from '../domain/fixtures';
-import type { ImportJob, MixCandidate, MixSet, ProviderId } from '../domain/types';
+import type { EntityRef, ImportJob, MixCandidate, MixSet, ProviderId } from '../domain/types';
 import {
   enrichMixMetadata,
   type ApiDiscoveryJob,
@@ -23,6 +23,7 @@ function loadMixes(): MixSet[] {
       sources: Array.isArray(mix.sources) ? mix.sources : [],
       candidates: Array.isArray(mix.candidates) ? mix.candidates : [],
       provenance: Array.isArray(mix.provenance) ? mix.provenance : [],
+      entities: Array.isArray(mix.entities) ? mix.entities : [],
       status: mix.status === 'enriching' ? 'review' : mix.status,
     }));
     window.localStorage.setItem('syco23.mixsets.library', JSON.stringify(repaired));
@@ -190,6 +191,7 @@ export function useMixStore() {
       })),
       sources: [candidate.source],
       externalIds: candidate.externalIds || {},
+      entities: [],
       candidates: [],
       confidence: candidate.confidence,
       completeness: 0,
@@ -213,6 +215,19 @@ export function useMixStore() {
   function applyEnrichmentResult(mix: MixSet, result: ApiEnrichmentResult, previousStatus: MixSet['status'] = mix.status) {
     const filled = new Set<string>();
     const patch = result.patch;
+    let reviewCandidatesAdded = 0;
+    const queueClaim = (id: string, fields: Partial<MixSet>, reason: string, provider: ProviderId = 'discogs') => {
+      if (mix.candidates.some((candidate) => candidate.id === id)) return;
+      mix.candidates.push({
+        id,
+        provider,
+        confidence: 0.88,
+        reasons: [reason],
+        fields,
+        state: 'pending',
+      });
+      reviewCandidatesAdded += 1;
+    };
 
     const assignMissing = (field: 'durationMs' | 'recordedAt' | 'description' | 'genres', value: unknown) => {
       const current = mix[field] as unknown;
@@ -237,6 +252,8 @@ export function useMixStore() {
     }
 
     for (const source of patch.sources || []) {
+      const idClaim = Object.entries(patch.externalIds || {}).find(([, id]) => id === source.externalId);
+      if (idClaim && mix.externalIds[idClaim[0]] && mix.externalIds[idClaim[0]] !== idClaim[1]) continue;
       if (!mix.sources.some((existing) => existing.provider === source.provider && existing.url === source.url)) {
         mix.sources.push(source);
         filled.add('sources');
@@ -244,8 +261,49 @@ export function useMixStore() {
     }
 
     if (patch.externalIds) {
-      Object.assign(mix.externalIds, patch.externalIds);
-      if (Object.keys(patch.externalIds).length) filled.add('externalIds');
+      for (const [key, id] of Object.entries(patch.externalIds)) {
+        if (mix.externalIds[key] && mix.externalIds[key] !== id) {
+          const provider: ProviderId = key === 'soundcloud' ? 'soundcloud' : key === 'archiveorg' ? 'archiveorg' : 'discogs';
+          queueClaim(`enrich-${provider}-id-${safeId(key)}`, {
+            externalIds: { ...mix.externalIds, [key]: id },
+          }, `${provider} ${key} differs from the canonical ID`, provider);
+        } else if (!mix.externalIds[key]) {
+          mix.externalIds[key] = id;
+          filled.add('externalIds');
+        }
+      }
+    }
+
+    for (const entity of result.entities) {
+      const names = entity.kind === 'crew' ? mix.crews : mix.artists;
+      if (!names.some((name) => normalized(name) === normalized(entity.name))) continue;
+      const index = mix.entities.findIndex((existing) => existing.kind === entity.kind && normalized(existing.name) === normalized(entity.name));
+      const current = index >= 0 ? mix.entities[index] : undefined;
+      const idKey = entity.kind === 'artist' ? 'discogsArtist' : 'discogsCrew';
+      const idConflict = Boolean(entity.externalId && mix.externalIds[idKey] && mix.externalIds[idKey] !== entity.externalId);
+      const profileConflict = Boolean(current?.profile && entity.profile && current.profile !== entity.profile);
+      const imageConflict = Boolean(current?.imageUrl && entity.imageUrl && current.imageUrl !== entity.imageUrl);
+      const merged: EntityRef = {
+        ...entity,
+        ...current,
+        profile: current?.profile || entity.profile,
+        imageUrl: current?.imageUrl || entity.imageUrl,
+        url: current?.url || entity.url,
+      };
+      if (idConflict || (current?.externalId && entity.externalId && current.externalId !== entity.externalId) || profileConflict || imageConflict) {
+        const proposed = { ...entity, ...current, externalId: entity.externalId, profile: entity.profile || current?.profile, imageUrl: entity.imageUrl || current?.imageUrl, url: entity.url || current?.url };
+        const next = [...mix.entities];
+        if (index >= 0) next[index] = proposed;
+        else next.push(proposed);
+        queueClaim(`enrich-discogs-entity-${safeId(entity.kind + '-' + entity.name)}`, { entities: next },
+          `Discogs ${entity.kind} profile or identity differs from the canonical record`);
+      } else if (index < 0) {
+        mix.entities.push(merged);
+        filled.add('artist info');
+      } else if (JSON.stringify(current) !== JSON.stringify(merged)) {
+        mix.entities[index] = merged;
+        filled.add('artist info');
+      }
     }
 
     const observedAt = new Date().toISOString();
@@ -259,7 +317,6 @@ export function useMixStore() {
       }
     }
 
-    let reviewCandidatesAdded = 0;
     for (const candidate of result.candidates) {
       if (candidate.confidence < 0.7) continue;
       const fields: Partial<MixSet> = {};

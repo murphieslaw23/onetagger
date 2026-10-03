@@ -457,6 +457,14 @@ select, textarea, input[type="number"] {
 }
 
 /* Audit fixes: resilient artwork, live worker state, enrichment flow */
+.entity-panel { margin-top: 24px; }
+.entity-row { display: flex; gap: 18px; padding: 18px 0; border-top: 1px solid rgba(255, 255, 255, .1); }
+.entity-row img { width: 88px; height: 88px; flex: none; object-fit: cover; border-radius: 4px; }
+.entity-row small { color: var(--muted, #a59c94); font-size: 11px; letter-spacing: .12em; }
+.entity-row h3 { margin: 5px 0 8px; font-size: 18px; }
+.entity-row p { white-space: pre-line; margin: 0 0 10px; line-height: 1.5; }
+.entity-row a { color: var(--primary, #c9774b); }
+@media (max-width: 600px) { .entity-row { gap: 12px; } .entity-row img { width: 64px; height: 64px; } }
 .artwork-frame {
   position: relative;
   width: 100%;

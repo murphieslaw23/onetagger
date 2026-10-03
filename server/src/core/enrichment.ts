@@ -1,5 +1,5 @@
 import type { EntityRef, MixCandidate, ProviderId, SourceRef } from '../domain.js';
-import { normalizeQuery } from './utils.js';
+import { normalizeQuery, overlapScore } from './utils.js';
 import type { ProviderRegistry } from './registry.js';
 
 export interface MixEnrichmentInput {
@@ -47,7 +47,8 @@ export interface MixEnrichmentResult {
 
 function exactEntity(name: string, entities: EntityRef[]): EntityRef | undefined {
   const wanted = normalizeQuery(name);
-  return entities.find((entity) => normalizeQuery(entity.name) === wanted);
+  const matches = entities.filter((entity) => normalizeQuery(entity.name) === wanted);
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 function providerQuery(provider: ProviderId, input: MixEnrichmentInput) {
@@ -109,6 +110,22 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
   const externalIds: Record<string, string> = {};
   const artwork: EnrichmentArtwork[] = [];
 
+  if (!(input.artwork || []).length) {
+    for (const source of (input.sources || []).filter((item) => item.provider === 'soundcloud')) {
+      attempted.push('soundcloud');
+      try {
+        const url = await registry.soundcloud.lookupArtwork(source.url);
+        if (url) {
+          artwork.push({ url, provider: 'soundcloud', kind: 'cover' });
+          provenance.push({ provider: 'soundcloud', field: 'artwork', confidence: 0.99, sourceUrl: source.url });
+          break;
+        }
+      } catch (error) {
+        failures.push({ provider: 'soundcloud', error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  }
+
   const fill = <K extends 'durationMs' | 'recordedAt' | 'description' | 'genres'>(
     field: K,
     value: MixEnrichmentResult['patch'][K],
@@ -127,6 +144,9 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
 
   for (const candidate of candidates) {
     if (candidate.confidence < 0.58) continue;
+    const safeSoundCloudMatch = candidate.provider !== 'soundcloud'
+      || (candidate.confidence >= 0.72 && overlapScore(candidate.title, input.title) >= 0.5);
+    if (!safeSoundCloudMatch) continue;
     if (!input.durationMs && candidate.durationMs) fill('durationMs', candidate.durationMs, candidate);
     if (!input.recordedAt && candidate.recordedAt) fill('recordedAt', candidate.recordedAt, candidate);
     if (!input.description && candidate.description) fill('description', candidate.description, candidate);
@@ -149,7 +169,7 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
   }
 
   const entities: EntityRef[] = [];
-  if (!existingProviders.has('discogs')) {
+  if (input.artists?.length || input.crews?.length) {
     attempted.push('discogs');
     try {
       const health = await registry.discogs.health();
@@ -163,14 +183,12 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
           for (const name of names.slice(0, 3)) {
             try {
               const matches = await registry.discogs.enrichEntity(name, kind);
-              entities.push(...matches);
               const exact = exactEntity(name, matches);
               if (!exact) continue;
-              if (!(input.artwork || []).length && !artwork.length && exact.imageUrl) {
-                artwork.push({ url: exact.imageUrl, provider: 'discogs', kind });
-                provenance.push({ provider: 'discogs', field: 'artwork', confidence: 0.88, sourceUrl: exact.url });
-              }
-              if (exact.externalId) externalIds[kind === 'artist' ? 'discogsArtist' : 'discogsCrew'] = exact.externalId;
+              entities.push(exact);
+              if (exact.profile) provenance.push({ provider: 'discogs', field: `${kind} profile`, confidence: 0.88, sourceUrl: exact.url });
+              const idKey = kind === 'artist' ? 'discogsArtist' : 'discogsCrew';
+              if (exact.externalId && !externalIds[idKey]) externalIds[idKey] = exact.externalId;
               if (exact.url) addedSources.set(`discogs:${exact.url}`, { provider: 'discogs', url: exact.url, externalId: exact.externalId });
             } catch (error) {
               failures.push({ provider: 'discogs', error: error instanceof Error ? error.message : String(error) });

@@ -23,6 +23,16 @@ export interface Provenance {
   sourceUrl?: string;
 }
 
+export interface EntityRef {
+  kind: 'artist' | 'crew' | 'label';
+  name: string;
+  provider?: ProviderId;
+  externalId?: string;
+  url?: string;
+  imageUrl?: string;
+  profile?: string;
+}
+
 export interface MixCandidate {
   id: string;
   provider: ProviderId;
@@ -53,6 +63,7 @@ export interface MixSet {
   streamUrl?: string;
   fileUrl?: string;
   externalIds: Record<string, string>;
+  entities: EntityRef[];
   candidates: MixCandidate[];
   confidence: number;
   completeness: number;

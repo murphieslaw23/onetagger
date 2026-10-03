@@ -102,3 +102,26 @@ test('enrichMix skips an unavailable SoundCloud provider before search', async (
   assert.equal(searched, false);
   assert.ok(result.failures.some((failure) => failure.provider === 'soundcloud'));
 });
+
+test('enrichMix fills cover from an indexed SoundCloud source without replacing canonical metadata', async () => {
+  const registry = {
+    discovery: new Map(),
+    soundcloud: {
+      async lookupArtwork() { return 'https://i1.sndcdn.com/artworks-test-t500x500.jpg'; },
+    },
+    discogs: {
+      async health() { return { state: 'offline', detail: 'unavailable' }; },
+    },
+  } as unknown as ProviderRegistry;
+  const result = await enrichMix(registry, {
+    title: 'Canonical title',
+    artists: ['Known artist'],
+    description: 'Good canonical description',
+    artwork: [],
+    sources: [{ provider: 'soundcloud', url: 'https://soundcloud.com/artist/long-mix' }],
+  });
+  assert.equal(result.patch.artwork?.[0]?.provider, 'soundcloud');
+  assert.equal(result.patch.artwork?.[0]?.kind, 'cover');
+  assert.equal(result.patch.description, undefined);
+  assert.deepEqual(result.attempted, ['soundcloud', 'discogs']);
+});

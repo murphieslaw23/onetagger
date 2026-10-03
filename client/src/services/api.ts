@@ -1,4 +1,4 @@
-import type { MixSet, ProviderId } from '../domain/types';
+import type { EntityRef, MixSet, ProviderId } from '../domain/types';
 
 export interface ApiMixCandidate {
   provider: ProviderId;
@@ -49,15 +49,7 @@ export interface ApiEnrichmentResult {
     externalIds?: Record<string, string>;
   };
   candidates: ApiMixCandidate[];
-  entities: Array<{
-    kind: 'artist' | 'crew' | 'label';
-    name: string;
-    provider?: ProviderId;
-    externalId?: string;
-    url?: string;
-    imageUrl?: string;
-    profile?: string;
-  }>;
+  entities: EntityRef[];
   provenance: Array<{
     provider: ProviderId;
     field: string;

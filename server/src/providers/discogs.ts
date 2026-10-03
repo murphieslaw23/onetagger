@@ -41,14 +41,29 @@ export class DiscogsEnricher {
       return response.json() as Promise<{ results?: Array<Record<string, any>> }>;
     }, 12_000, signal));
 
-    return (payload.results ?? []).map((result) => ({
+    const results = payload.results ?? [];
+    const exact = results.filter((result) => String(result.title || '').trim().toLowerCase() === name.trim().toLowerCase());
+    // A search hit only has a placeholder profile. Hydrate a unique exact match
+    // from the entity endpoint; ambiguous names remain review candidates.
+    const details = exact.length === 1 && Number.isSafeInteger(Number(exact[0].id))
+      ? await retry(() => withTimeout(async (inner) => {
+        const response = await fetch(new URL(`${type === 'label' ? 'labels' : 'artists'}/${exact[0].id}`, API), {
+          signal: inner,
+          headers: this.headers(),
+        });
+        if (!response.ok) throw new Error(`Discogs entity ${response.status} ${response.statusText || 'request rejected'}`);
+        return response.json() as Promise<Record<string, any>>;
+      }, 12_000, signal))
+      : null;
+
+    return results.map((result) => ({
       kind,
       name: result.title || name,
       provider: this.id,
       externalId: String(result.id || ''),
-      url: result.resource_url ? result.resource_url.replace('api.discogs.com/', 'www.discogs.com/') : undefined,
-      imageUrl: result.cover_image || result.thumb,
-      profile: result.type === 'artist' ? 'Discogs artist candidate' : 'Discogs label candidate',
+      url: details && details.id === result.id ? details.uri : result.uri,
+      imageUrl: details && details.id === result.id ? details.images?.[0]?.uri || result.cover_image : result.cover_image || result.thumb,
+      profile: details && details.id === result.id ? details.profile?.trim() || undefined : undefined,
     }));
   }
 }

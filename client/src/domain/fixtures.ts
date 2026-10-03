@@ -24,6 +24,7 @@ export const mixes: MixSet[] = [
       { provider: 'discogs', url: 'https://www.discogs.com/' },
     ],
     externalIds: { discogsArtist: 'spiral-tribe' },
+    entities: [],
     candidates: [
       {
         id: 'cand-sc-01',
@@ -61,6 +62,7 @@ export const mixes: MixSet[] = [
     artwork: [{ url: 'https://picsum.photos/seed/syco-metek/900/900', source: 'local', kind: 'cover' }],
     sources: [{ provider: 'freeteknomusic', url: 'https://archive.freeteknomusic.org/metek' }],
     externalIds: {},
+    entities: [],
     candidates: [],
     confidence: 0.97,
     completeness: 0.79,
@@ -84,6 +86,7 @@ export const mixes: MixSet[] = [
       { provider: 'archiveorg', url: 'https://archive.org/' },
     ],
     externalIds: {},
+    entities: [],
     candidates: [],
     confidence: 0.82,
     completeness: 0.62,
@@ -106,6 +109,7 @@ export const mixes: MixSet[] = [
     artwork: [{ url: 'https://picsum.photos/seed/syco-gotek/900/900', source: 'local', kind: 'cover' }],
     sources: [{ provider: 'freeteknomusic', url: 'https://archive.freeteknomusic.org/gotek' }],
     externalIds: {},
+    entities: [],
     candidates: [],
     confidence: 0.89,
     completeness: 0.74,

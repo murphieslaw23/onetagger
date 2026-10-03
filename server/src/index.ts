@@ -19,11 +19,11 @@ function corsOrigin(req: http.IncomingMessage): string | undefined {
 }
 
 function json(req: http.IncomingMessage, res: http.ServerResponse, status: number, body: unknown) {
-  const payload = JSON.stringify(body);
+  const payload = status === 204 ? '' : JSON.stringify(body);
   const origin = corsOrigin(req);
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
-    'content-length': Buffer.byteLength(payload),
+    ...(status === 204 ? {} : { 'content-length': Buffer.byteLength(payload) }),
     ...(origin ? { 'access-control-allow-origin': origin, vary: 'Origin' } : {}),
     'access-control-allow-headers': 'content-type, authorization',
     'access-control-allow-methods': 'GET,POST,OPTIONS',

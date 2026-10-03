@@ -99,6 +99,19 @@
       </section>
     </div>
 
+    <section v-if="mix.entities.length" class="panel entity-panel">
+      <div class="panel-head"><span>ARTISTS & CREWS</span><b>ENTITY PROFILES</b></div>
+      <article v-for="entity in mix.entities" :key="entity.kind + entity.externalId" class="entity-row">
+        <img v-if="entity.imageUrl" :src="entity.imageUrl" :alt="entity.name" loading="lazy" />
+        <div>
+          <small>{{ entity.kind.toUpperCase() }} · {{ entity.provider || 'SOURCE' }}</small>
+          <h3>{{ entity.name }}</h3>
+          <p v-if="entity.profile">{{ entity.profile }}</p>
+          <a v-if="entity.url" :href="entity.url" target="_blank" rel="noopener noreferrer">View entity source <q-icon name="mdi-open-in-new" size="12px" /></a>
+        </div>
+      </article>
+    </section>
+
     <section class="panel candidate-panel" v-if="pendingCandidates.length">
       <div class="panel-head"><span>{{ pendingCandidates.length }} PENDING</span><b>ENRICHMENT CONFLICTS</b></div>
       <article v-for="candidate in pendingCandidates" :key="candidate.id" class="inline-candidate">

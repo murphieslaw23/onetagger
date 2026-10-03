@@ -2,20 +2,44 @@ import type { DiscoveryProvider, MixCandidate, ProviderHealth, SearchQuery } fro
 import { confidenceScore, retry, uniqueCandidates, withTimeout } from '../core/utils.js';
 
 const API = 'https://api.soundcloud.com';
+let cachedToken: { value: string; expiresAt: number } | undefined;
 
-function token(): string {
-  const value = process.env.SOUNDCLOUD_ACCESS_TOKEN;
-  if (!value) throw new Error('SOUNDCLOUD_ACCESS_TOKEN is not configured');
-  return value;
+async function token(signal?: AbortSignal): Promise<string> {
+  const clientId = process.env.SOUNDCLOUD_CLIENT_ID;
+  const clientSecret = process.env.SOUNDCLOUD_CLIENT_SECRET;
+  if (clientId && clientSecret) {
+    if (cachedToken && cachedToken.expiresAt > Date.now()) return cachedToken.value;
+    const response = await withTimeout((inner) => fetch('https://secure.soundcloud.com/oauth/token', {
+      method: 'POST',
+      signal: inner,
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/x-www-form-urlencoded',
+        authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+      },
+      body: 'grant_type=client_credentials',
+    }), 12_000, signal);
+    if (!response.ok) throw new Error(`SoundCloud token ${response.status} ${response.statusText || 'request rejected'}`);
+    const payload = await response.json() as { access_token?: string; expires_in?: number };
+    if (!payload.access_token) throw new Error('SoundCloud token response has no access token');
+    cachedToken = {
+      value: payload.access_token,
+      expiresAt: Date.now() + Math.max(60, (payload.expires_in || 3600) - 120) * 1000,
+    };
+    return cachedToken.value;
+  }
+  if (process.env.SOUNDCLOUD_ACCESS_TOKEN) return process.env.SOUNDCLOUD_ACCESS_TOKEN;
+  throw new Error('SoundCloud app credentials are not configured');
 }
 
 async function api<T>(path: string, params: URLSearchParams, signal?: AbortSignal): Promise<T> {
+  const accessToken = await token(signal);
   return retry(() => withTimeout(async (inner) => {
     const url = new URL(path, API);
     url.search = params.toString();
     const response = await fetch(url, {
       signal: inner,
-      headers: { accept: 'application/json', authorization: `OAuth ${token()}` },
+      headers: { accept: 'application/json', authorization: `OAuth ${accessToken}` },
     });
     if (!response.ok) throw new Error(`SoundCloud ${response.status} ${response.statusText || 'request rejected'}`);
     return response.json() as Promise<T>;
@@ -26,8 +50,8 @@ export class SoundCloudProvider implements DiscoveryProvider {
   id = 'soundcloud' as const;
 
   async health(signal?: AbortSignal): Promise<ProviderHealth> {
-    if (!process.env.SOUNDCLOUD_ACCESS_TOKEN) {
-      return { id: this.id, state: 'limited', detail: 'Official API configured but SOUNDCLOUD_ACCESS_TOKEN is missing', checkedAt: new Date().toISOString() };
+    if (!process.env.SOUNDCLOUD_ACCESS_TOKEN && !(process.env.SOUNDCLOUD_CLIENT_ID && process.env.SOUNDCLOUD_CLIENT_SECRET)) {
+      return { id: this.id, state: 'limited', detail: 'Source artwork lookup available; search requires SoundCloud app credentials', checkedAt: new Date().toISOString() };
     }
     try {
       await api('/tracks', new URLSearchParams({ q: 'freetekno', limit: '1', linked_partitioning: 'true' }), signal);
@@ -35,6 +59,23 @@ export class SoundCloudProvider implements DiscoveryProvider {
     } catch (error) {
       return { id: this.id, state: 'offline', detail: String(error), checkedAt: new Date().toISOString() };
     }
+  }
+
+  async lookupArtwork(sourceUrl: string, signal?: AbortSignal): Promise<string | undefined> {
+    const source = new URL(sourceUrl);
+    if (!['soundcloud.com', 'www.soundcloud.com'].includes(source.hostname) || source.pathname.split('/').filter(Boolean).length < 2) {
+      throw new Error('SoundCloud source URL is invalid');
+    }
+    const url = new URL('https://soundcloud.com/oembed');
+    url.search = new URLSearchParams({ format: 'json', url: source.toString() }).toString();
+    const response = await withTimeout((inner) => fetch(url, { signal: inner, headers: { accept: 'application/json' } }), 12_000, signal);
+    if (!response.ok) throw new Error(`SoundCloud oEmbed ${response.status} ${response.statusText || 'request rejected'}`);
+    const payload = await response.json() as { thumbnail_url?: string };
+    if (!payload.thumbnail_url) return undefined;
+    const thumbnail = new URL(payload.thumbnail_url);
+    // oEmbed may return the uploader avatar when the track has no cover.
+    if (!thumbnail.hostname.endsWith('.sndcdn.com') || !thumbnail.pathname.startsWith('/artworks-')) return undefined;
+    return thumbnail.toString();
   }
 
   async search(query: SearchQuery, signal?: AbortSignal): Promise<MixCandidate[]> {
@@ -64,10 +105,10 @@ export class SoundCloudProvider implements DiscoveryProvider {
         artists: user.username ? [user.username] : [],
         crews: [],
         durationMs: track.duration,
-        recordedAt: track.created_at?.slice(0, 10),
+        // created_at is the upload date, not necessarily the mix recording date.
         description: track.description,
         genres: [track.genre, ...(Array.isArray(track.tag_list) ? track.tag_list : String(track.tag_list || '').split(/\s+/))].filter(Boolean),
-        artwork: [track.artwork_url, user.avatar_url].filter(Boolean),
+        artwork: track.artwork_url ? [track.artwork_url] : [],
         source: { provider: this.id, url: track.permalink_url, externalId: track.urn || String(track.id || '') },
         externalIds: { soundcloud: track.urn || String(track.id || '') },
         confidence: scored.score,

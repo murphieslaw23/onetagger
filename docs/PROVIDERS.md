@@ -8,7 +8,9 @@ The adapter stays on the archive origin, resolves relative URLs safely, supports
 
 ## SoundCloud
 
-Uses the official public API with OAuth access token. `SOUNDCLOUD_ACCESS_TOKEN` is required for live queries. The adapter requests playable tracks, applies a duration lower bound and reads only metadata returned by the API.
+Uses the official public API for search. Configure `SOUNDCLOUD_CLIENT_ID` and `SOUNDCLOUD_CLIENT_SECRET` to obtain and cache a client-credentials token for public-resource queries. `SOUNDCLOUD_ACCESS_TOKEN` remains a legacy alternative, but expires and cannot renew itself. The adapter requests playable tracks, applies a duration lower bound and reads only metadata returned by the API. Upload time is not treated as recording time, and uploader avatars are not treated as mix covers.
+
+For a mix already linked to a public SoundCloud track, the official oEmbed endpoint can supply track artwork without API credentials. Avatar fallbacks are rejected. Searching SoundCloud for artwork on mixes from other providers still requires app credentials.
 
 No HTML scraping, access-control bypass or protected stream extraction is implemented.
 
@@ -18,4 +20,4 @@ Uses `/advancedsearch.php` for discovery and `/metadata/{identifier}` for item m
 
 ## Discogs
 
-Used for entity enrichment rather than long-mix track matching. `DISCOGS_TOKEN` is optional but strongly recommended for rate limits. Crew/sound-system names are searched as artist-like entities; labels as labels. Results remain reviewable.
+Used for entity enrichment rather than long-mix track matching. `DISCOGS_TOKEN` is optional but strongly recommended for rate limits. Crew/sound-system names are searched as artist-like entities; labels as labels. A unique exact search result is hydrated from the artist/label entity endpoint so profile text, image, and source URL are real. Artist images are stored on entity profiles, never as mix cover art. Conflicting IDs and profile claims remain reviewable.

@@ -7,9 +7,10 @@ import { SoundCloudProvider } from '../providers/soundcloud.js';
 export class ProviderRegistry {
   readonly discovery = new Map<string, DiscoveryProvider>();
   readonly discogs = new DiscogsEnricher();
+  readonly soundcloud = new SoundCloudProvider();
 
   constructor() {
-    for (const provider of [new FreeteknomusicProvider(), new SoundCloudProvider(), new ArchiveOrgProvider()]) {
+    for (const provider of [new FreeteknomusicProvider(), this.soundcloud, new ArchiveOrgProvider()]) {
       this.discovery.set(provider.id, provider);
     }
   }
