@@ -11,11 +11,13 @@ The active web product no longer contains OneTagger's AutoTagger, QuickTag, trac
 ## Providers
 
 - **archive.freeteknomusic.org** — bounded HTTP directory crawler; never treated as FTP and never downloads complete audio just to discover metadata.
-- **SoundCloud** — official API only; long-form discovery uses duration filtering and `SOUNDCLOUD_ACCESS_TOKEN`.
+- **SoundCloud** — official API only; long-form discovery uses duration filtering and private app credentials. Already-linked public tracks can supply cover art through oEmbed.
 - **Internet Archive** — Advanced Search + Metadata API.
 - **Discogs** — artist / crew-like artist / label enrichment and images, not long-mix track matching.
 
 See [docs/PROVIDERS.md](docs/PROVIDERS.md).
+
+The Providers screen links to official registration pages and shows the private VPS-L setup commands for SoundCloud and Discogs. Credentials are entered only in an interactive VPS terminal, never in the public web app.
 
 ## Local development
 

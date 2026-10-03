@@ -760,6 +760,18 @@ select, textarea, input[type="number"] {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+.provider-card { display: flex; flex-direction: column; }
+.provider-card__setup { margin-top: auto; width: 100%; justify-content: center; }
+.provider-setup { margin-top: 16px; }
+.provider-setup__body { padding: clamp(18px, 2.5vw, 30px); max-width: 850px; }
+.provider-setup__body h2 { margin: 14px 0; font: 900 clamp(27px, 3vw, 38px)/1 var(--condensed); text-transform: uppercase; }
+.provider-setup__body p, .provider-setup__body li { color: var(--muted); line-height: 1.65; }
+.provider-setup__body ol { margin: 18px 0; padding-left: 22px; }
+.provider-setup__body li { margin-bottom: 12px; padding-left: 4px; }
+.provider-setup__body a { color: var(--copper-bright); text-decoration: underline; text-underline-offset: 3px; }
+.provider-setup__body pre { overflow-x: auto; margin: 20px 0; padding: 18px; border: 1px solid var(--line-strong); background: #0b0a09; color: var(--copper-bright); font: 12px/1.6 var(--mono); }
+.provider-setup__intro { margin: 0; }
+.provider-setup__note { border-left: 2px solid var(--copper); padding-left: 12px; }
 .job-row__body strong {
   min-width: 0;
   overflow: hidden;
