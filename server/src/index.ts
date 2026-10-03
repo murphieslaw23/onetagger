@@ -4,11 +4,14 @@ import { ProviderRegistry } from './core/registry.js';
 import { InMemoryJobQueue } from './jobs/in-memory.js';
 import { enrichMix } from './core/enrichment.js';
 import { WaveformQueue } from './core/waveform.js';
+import { openCatalog } from './catalog/repository.js';
+import { join } from 'node:path';
 
 const port = Number(process.env.PORT || 8787);
 const registry = new ProviderRegistry();
 const queue = new InMemoryJobQueue(registry);
 const waveformQueue = new WaveformQueue();
+const catalog = openCatalog(process.env.CATALOG_PATH || join(process.cwd(), '.data/catalog.sqlite'));
 
 function corsOrigin(req: http.IncomingMessage): string | undefined {
   const configured = (process.env.CORS_ORIGIN || '*')
@@ -142,3 +145,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(port, '0.0.0.0', () => {
   console.log(`SYCO23 Mixsets API listening on :${port}`);
 });
+
+process.on('SIGTERM', () => server.close(() => { catalog.close(); process.exit(0); }));
+process.on('SIGINT', () => server.close(() => { catalog.close(); process.exit(0); }));

@@ -1,0 +1,11 @@
+.git
+**/node_modules
+**/dist
+.data
+.superpowers
+.vercel
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+**/__pycache__
