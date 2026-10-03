@@ -205,7 +205,7 @@ function providerBlocked(id: ProviderId) {
   const provider = state.providers.find((item) => item.id === id);
   if (!provider) return false;
   if (provider.state === 'offline') return true;
-  return id === 'soundcloud' && /missing|token required/i.test(provider.detail);
+  return id === 'soundcloud' && provider.state !== 'ready';
 }
 
 function duration(ms: number) {
