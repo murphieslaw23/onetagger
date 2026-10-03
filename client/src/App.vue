@@ -29,10 +29,15 @@
         <div class="top-line__right">
           <span>{{ runtimeLabel }}</span>
           <i :data-state="state.apiState"></i>
+          <button class="curator-status" type="button" @click="toggleCurator">
+            <q-icon :name="catalog.state.authenticated ? 'mdi-account-check-outline' : 'mdi-account-lock-outline'" />
+            {{ catalog.state.authenticated ? 'CURATOR' : 'PUBLIC' }}
+          </button>
         </div>
       </div>
       <div class="mobile-runtime" :data-state="state.apiState">
         <span></span>{{ runtimeLabel }}
+        <router-link to="/login">{{ catalog.state.authenticated ? 'CURATOR' : 'PUBLIC' }}</router-link>
       </div>
       <router-view />
     </main>
@@ -49,21 +54,26 @@
 
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { useMixStore } from './composables/useMixStore';
+import { useCatalogStore } from './catalog/store';
 import { getDiscoveryJobs, getProviderHealth } from './services/api';
 
 const {
   state,
-  reviewCount,
   runningJobs,
   syncApiJobs,
   updateProviderHealth,
   setApiState,
 } = useMixStore();
+const catalog = useCatalogStore;
+const router = useRouter();
+const reviewCount = computed(() => catalog.state.review.length);
 
 const nav = computed(() => [
   { to: '/', label: 'Library', mobile: 'Library', icon: 'mdi-view-grid-outline', badge: 0 },
   { to: '/import', label: 'Import / Crawl', mobile: 'Import', icon: 'mdi-radar', badge: runningJobs.value },
+  { to: '/local-tags', label: 'Local Tagger', mobile: 'Tag MP3', icon: 'mdi-folder-music-outline', badge: 0 },
   { to: '/review', label: 'Review Queue', mobile: 'Review', icon: 'mdi-source-merge', badge: reviewCount.value },
   { to: '/providers', label: 'Providers', mobile: 'Sources', icon: 'mdi-server-network-outline', badge: 0 },
 ]);
@@ -82,12 +92,30 @@ const railStatus = computed(() => {
 onMounted(async () => {
   setApiState('checking');
   try {
-    const [health, jobs] = await Promise.all([getProviderHealth(), getDiscoveryJobs()]);
+    const [health, authenticated] = await Promise.all([getProviderHealth(), catalog.checkSession()]);
     updateProviderHealth(health);
-    syncApiJobs(jobs);
+    if (authenticated) {
+      const jobs = await getDiscoveryJobs();
+      syncApiJobs(jobs);
+      await catalog.loadReview();
+    } else {
+      syncApiJobs([]);
+    }
     setApiState('online');
   } catch {
     setApiState('offline');
   }
 });
+
+async function toggleCurator() {
+  if (!catalog.state.authenticated) {
+    await router.push('/login');
+    return;
+  }
+  try {
+    await catalog.logout();
+  } catch {
+    await router.push('/login');
+  }
+}
 </script>

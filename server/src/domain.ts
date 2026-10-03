@@ -58,3 +58,18 @@ export interface DiscoveryProvider {
   search(query: SearchQuery, signal?: AbortSignal): Promise<MixCandidate[]>;
   health(signal?: AbortSignal): Promise<ProviderHealth>;
 }
+
+export type {
+  CatalogDetail,
+  CatalogRecord,
+  EntityRecord,
+  EntityRole as CatalogEntityRole,
+  EventRecord,
+  FieldClaim,
+  IndexKind,
+  LegacyMix,
+  MixRecord,
+  ProviderRef,
+  RecordId,
+  ReviewItem
+} from '@syco23/catalog-domain';

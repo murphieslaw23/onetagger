@@ -6,8 +6,8 @@
   "scripts": {
     "dev:web": "pnpm --dir client dev",
     "dev:api": "pnpm --dir server dev",
-    "build": "pnpm --dir client build && pnpm --dir server build",
-    "test": "pnpm --dir server test",
-    "typecheck": "pnpm --dir client exec vue-tsc --noEmit && pnpm --dir server typecheck"
+    "build": "pnpm --dir packages/domain build && pnpm --dir client build && pnpm --dir server build",
+    "test": "pnpm --dir packages/domain test && pnpm --dir client test && pnpm --dir server test",
+    "typecheck": "pnpm --dir packages/domain build && pnpm --dir client exec vue-tsc --noEmit && pnpm --dir server typecheck"
   }
 }

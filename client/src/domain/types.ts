@@ -98,3 +98,18 @@ export interface ProviderHealth {
   auth: 'none' | 'optional' | 'required';
   lastCheck: string;
 }
+
+export type {
+  CatalogDetail,
+  CatalogRecord,
+  EntityRecord,
+  EntityRole as CatalogEntityRole,
+  EventRecord,
+  FieldClaim,
+  IndexKind,
+  LegacyMix,
+  MixRecord,
+  ProviderRef,
+  RecordId,
+  ReviewItem
+} from '@syco23/catalog-domain';

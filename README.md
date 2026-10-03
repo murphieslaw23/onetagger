@@ -26,6 +26,7 @@ The Providers screen links to setup guides for SoundCloud, Discogs and YouTube. 
 ```bash
 pnpm install
 cp .env.example .env
+python3 deploy/vps/setup_curator.py .env
 pnpm dev:api
 # second terminal
 pnpm dev:web
@@ -35,7 +36,9 @@ Web: http://localhost:5173
 
 API: http://localhost:8787
 
-Fixture data is included so the UI remains useful without provider credentials.
+The local API reads `.env` at startup. Set `CURATOR_PASSWORD_HASH` with a private password hash before using catalog write routes; generate it interactively with `python3 deploy/vps/setup_curator.py .env`. The setup routine never prints the password or hash.
+
+The shared catalog starts empty. Public provider metadata is fetched by the worker; curator login is required for imports and writes. The local setup routine writes only a salted password hash to `.env` and does not echo the password.
 
 ## Validation
 
@@ -44,6 +47,8 @@ pnpm typecheck
 pnpm test
 pnpm build
 ```
+
+`pnpm test` runs the shared-domain, client API/store and server suites. The SQLite Node API currently emits Node's experimental SQLite warning on Node 22; production is pinned to Node 22.23.3.
 
 ## Architecture
 

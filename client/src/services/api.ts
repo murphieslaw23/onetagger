@@ -60,11 +60,30 @@ export interface ApiEnrichmentResult {
   failures: Array<{ provider: ProviderId; error: string }>;
 }
 
+export interface LocalTrackEnrichmentInput {
+  title: string;
+  artists: string[];
+  crews?: string[];
+  durationMs?: number;
+  recordedAt?: string;
+  description?: string;
+  genres?: string[];
+  artwork?: Array<{ url: string; provider?: ProviderId; kind?: 'cover' | 'artist' | 'crew' }>;
+  providers: ProviderId[];
+}
+
 const API_BASE = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '');
+
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
+    credentials: 'include',
     headers: {
       'content-type': 'application/json',
       ...(init?.headers || {}),
@@ -72,7 +91,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `API ${response.status}`);
+    let message = text || `API ${response.status}`;
+    try {
+      const payload = JSON.parse(text) as { error?: unknown };
+      if (typeof payload.error === 'string') message = payload.error;
+    } catch {
+      message = text || `API ${response.status}`;
+    }
+    throw new ApiRequestError(message, response.status);
   }
   return response.json() as Promise<T>;
 }
@@ -121,6 +147,30 @@ export function enrichMixMetadata(mix: MixSet) {
   });
 }
 
+export function enrichLocalTrackMetadata(input: LocalTrackEnrichmentInput) {
+  return request<ApiEnrichmentResult>('/enrich', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function fetchProviderArtwork(url: string): Promise<{ bytes: ArrayBuffer; contentType: string }> {
+  const response = await fetch(`${API_BASE}/artwork/fetch`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => undefined) as { error?: unknown } | undefined;
+    throw new ApiRequestError(typeof payload?.error === 'string' ? payload.error : `Cover request failed (${response.status})`, response.status);
+  }
+  return {
+    bytes: await response.arrayBuffer(),
+    contentType: response.headers.get('content-type') || 'image/jpeg',
+  };
+}
+
 export interface ApiWaveformJob {
   id: string;
   sourceUrl: string;
@@ -142,6 +192,7 @@ export function getWaveformJob(id: string) {
 export async function previewSoundCloudArtwork(url: string): Promise<{ sourceUrl: string; title?: string; artworkUrl: string }> {
   const response = await fetch(`${API_BASE}/soundcloud/artwork`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ url }),
   });
@@ -154,7 +205,7 @@ export async function previewSoundCloudArtwork(url: string): Promise<{ sourceUrl
 
 export async function previewPublicArtwork(provider: 'soundcloud' | 'youtube' | 'hearthis', url: string): Promise<{ provider: ProviderId; sourceUrl: string; title?: string; artworkUrl: string }> {
   const response = await fetch(`${API_BASE}/artwork/preview`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider, url }),
+    method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider, url }),
   });
   const payload = await response.json() as { provider?: ProviderId; sourceUrl?: string; title?: string; artworkUrl?: string; error?: string };
   if (!response.ok || !payload.sourceUrl || !payload.artworkUrl || !payload.provider) {

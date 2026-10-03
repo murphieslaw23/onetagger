@@ -18,7 +18,7 @@ No HTML scraping, access-control bypass or protected stream extraction is implem
 
 ## YouTube
 
-Known public video URLs use YouTube's oEmbed metadata and thumbnail without credentials. Text discovery and provider-wide enrichment use the official YouTube Data API v3 with `YOUTUBE_API_KEY`; the search result is checked against video details and the configured minimum duration. Upload date is never treated as recording date. The uploader is used as the artist only when the title itself has no clear `Artist - Mix` identity. Video thumbnails are applied automatically only when title, artist and available duration evidence establish a strong match; other claims can be reviewed.
+Known public video URLs use YouTube's oEmbed metadata and thumbnail without credentials. Text discovery and provider-wide enrichment use the official YouTube Data API v3 with `YOUTUBE_API_KEY`; the search result is checked against video details and the configured minimum duration. Upload date is never treated as recording date. A channel/uploader is never promoted to a performing artist. Title parsing may provide an identity suggestion, but uncertain performer matches remain in Review. Video thumbnails are selected automatically only when title and compatible duration establish a strong same-recording match; other images stay reviewable.
 
 Enable YouTube Data API v3 in [Google Cloud](https://developers.google.com/youtube/v3/getting-started), create an API key restricted to that API, then run the private `youtube` setup routine below. Public search does not require a user OAuth login.
 
@@ -35,6 +35,8 @@ Uses `/advancedsearch.php` for discovery and `/metadata/{identifier}` for item m
 Used for entity enrichment rather than long-mix track matching. `DISCOGS_TOKEN` is optional but strongly recommended for rate limits. Crew/sound-system names are searched as artist-like entities; labels as labels. A unique exact search result is hydrated from the artist/label entity endpoint so profile text, image, and source URL are real. Artist images are stored on entity profiles, never as mix cover art. Conflicting IDs and profile claims remain reviewable.
 
 Generate a personal API token under [Discogs Developer settings](https://www.discogs.com/settings/developers). A user OAuth flow is unnecessary for these public artist and label lookups.
+
+For already-linked entities, enrichment hydrates `/artists/{id}` or `/labels/{id}` directly. Shared profiles and role-specific images belong to the entity record and are visible from every linked mix. Matching names do not create a role or relationship. A Discogs label result alone does not establish that a label released or organized a particular mix.
 
 ## Private VPS-L setup
 

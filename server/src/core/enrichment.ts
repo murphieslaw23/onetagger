@@ -6,6 +6,7 @@ import { probeAudioDuration } from './waveform.js';
 export interface MixEnrichmentInput {
   title: string;
   artists: string[];
+  providers?: ProviderId[];
   crews?: string[];
   durationMs?: number;
   recordedAt?: string;
@@ -77,13 +78,13 @@ function providerQuery(provider: ProviderId, input: MixEnrichmentInput) {
 }
 
 export async function enrichMix(registry: ProviderRegistry, input: MixEnrichmentInput): Promise<MixEnrichmentResult> {
-  const existingProviders = new Set((input.sources || []).map((source) => source.provider));
   const attempted: ProviderId[] = [];
   const failures: Array<{ provider: ProviderId; error: string }> = [];
   const candidates: MixCandidate[] = [];
+  const selectedProviders = input.providers ? new Set(input.providers) : undefined;
 
   const discoveryTasks = [...registry.discovery.entries()]
-    .filter(([provider]) => !existingProviders.has(provider as ProviderId))
+    .filter(([providerId]) => !selectedProviders || selectedProviders.has(providerId as ProviderId))
     .map(async ([providerId, provider]) => {
       const id = providerId as ProviderId;
       const query = providerQuery(id, input);
@@ -195,7 +196,7 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
   }
 
   const entities: EntityRef[] = [];
-  if (input.artists?.length || input.crews?.length) {
+  if ((!selectedProviders || selectedProviders.has('discogs')) && (input.artists?.length || input.crews?.length)) {
     attempted.push('discogs');
     try {
       const health = await registry.discogs.health();

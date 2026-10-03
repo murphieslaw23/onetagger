@@ -22,6 +22,12 @@
 
 History remains in Git and upstream remains the fork parent.
 
+## Current archive workflow
+
+The active flow is provider discovery → curator-selected import → server enrichment → field-level Review → shared detail/index pages. OneTagger's ranked-candidate and explicit-review ideas are retained, while its Rust/WebView/socket bridge and file-tag write path are not used by the shared archive.
+
+The Vue client reads canonical records from the Node API. SQLite is the source of truth; localStorage is retained only as a migration source/cache. On curator login, a browser with a saved library can submit an idempotent migration batch. The server excludes the four shipped demo IDs, keeps valid records if other entries fail, preserves covers and valid waveform PNGs, and stores legacy-ID redirects. The browser copy is never removed by the migration request.
+
 ## New aggregate root
 
 `MixSet` replaces the `AudioFileInfo -> Track` workflow. It carries long duration, artist/crew/event context, multiple public sources, candidates, provenance, confidence and raw provider metadata.

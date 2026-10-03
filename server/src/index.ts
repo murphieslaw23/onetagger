@@ -1,23 +1,27 @@
 import http from 'node:http';
 import { URL } from 'node:url';
 import { ProviderRegistry } from './core/registry.js';
+import type { ProviderId } from './domain.js';
+import { ArtworkFetchError, fetchProviderArtwork } from './providers/artwork.js';
 import { InMemoryJobQueue } from './jobs/in-memory.js';
 import { enrichMix } from './core/enrichment.js';
 import { WaveformQueue } from './core/waveform.js';
+import { openCatalog } from './catalog/repository.js';
+import { createCuratorAuth } from './auth/curator.js';
+import { handleAuthRoute } from './auth/routes.js';
+import { handleCatalogRoute } from './catalog/routes.js';
+import { HttpInputError, isAllowedOrigin, readJsonBody } from './http.js';
 
 const port = Number(process.env.PORT || 8787);
+const catalog = openCatalog(process.env.CATALOG_DB_PATH || './data/catalog.sqlite');
+const curatorAuth = createCuratorAuth(catalog, process.env.CURATOR_PASSWORD_HASH || '');
 const registry = new ProviderRegistry();
 const queue = new InMemoryJobQueue(registry);
 const waveformQueue = new WaveformQueue();
 
 function corsOrigin(req: http.IncomingMessage): string | undefined {
-  const configured = (process.env.CORS_ORIGIN || '*')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-  if (configured.includes('*')) return '*';
   const requested = req.headers.origin;
-  return requested && configured.includes(requested) ? requested : undefined;
+  return requested && isAllowedOrigin(req) ? requested : undefined;
 }
 
 function json(req: http.IncomingMessage, res: http.ServerResponse, status: number, body: unknown) {
@@ -26,24 +30,35 @@ function json(req: http.IncomingMessage, res: http.ServerResponse, status: numbe
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     ...(status === 204 ? {} : { 'content-length': Buffer.byteLength(payload) }),
-    ...(origin ? { 'access-control-allow-origin': origin, vary: 'Origin' } : {}),
-    'access-control-allow-headers': 'content-type, authorization',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    ...(origin ? {
+      'access-control-allow-origin': origin,
+      'access-control-allow-credentials': 'true',
+      'access-control-allow-headers': 'content-type',
+      'access-control-allow-methods': 'GET,POST,PATCH,PUT,OPTIONS',
+      vary: 'Origin'
+    } : {}),
   });
   res.end(payload);
 }
 
 async function body(req: http.IncomingMessage): Promise<any> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(Buffer.from(chunk));
-  if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  return readJsonBody(req);
 }
 
 const server = http.createServer(async (req, res) => {
   if (!req.url) return json(req, res, 404, { error: 'not found' });
   if (req.method === 'OPTIONS') return json(req, res, 204, {});
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    if (await handleAuthRoute({ auth: curatorAuth }, req, res)) return;
+    if (await handleCatalogRoute({ repository: catalog, auth: curatorAuth, registry }, req, res)) return;
+
+    const curatorRead = req.method === 'GET' && (url.pathname.startsWith('/api/jobs') || url.pathname.startsWith('/api/waveforms'));
+    if (req.method === 'POST' || req.method === 'PUT') {
+      if (!isAllowedOrigin(req)) return json(req, res, 403, { error: 'Origin is not allowed' });
+      if (!curatorAuth.authenticate(req)) return json(req, res, 401, { error: 'Curator login is required' });
+    } else if (curatorRead && !curatorAuth.authenticate(req)) {
+      return json(req, res, 401, { error: 'Curator login is required' });
+    }
 
   try {
     if (req.method === 'GET' && url.pathname === '/api/live') {
@@ -76,7 +91,40 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/enrich') {
       const input = await body(req);
       if (!input.title || !Array.isArray(input.artists)) return json(req, res, 400, { error: 'title and artists are required' });
-      return json(req, res, 200, await enrichMix(registry, input));
+      const providerIds: ProviderId[] = ['freeteknomusic', 'soundcloud', 'archiveorg', 'discogs', 'youtube', 'hearthis'];
+      if (input.providers !== undefined && (!Array.isArray(input.providers) || input.providers.some((provider: unknown) => !providerIds.includes(provider as ProviderId)))) {
+        return json(req, res, 400, { error: 'providers must contain only supported provider IDs' });
+      }
+      return json(req, res, 200, await enrichMix(registry, {
+        ...input,
+        providers: input.providers as ProviderId[] | undefined,
+      }));
+    }
+    if (req.method === 'POST' && url.pathname === '/api/artwork/fetch') {
+      const input = await body(req);
+      if (typeof input.url !== 'string' || input.url.length > 2048) {
+        return json(req, res, 400, { error: 'A provider artwork URL is required' });
+      }
+      try {
+        const image = await fetchProviderArtwork(input.url);
+        const origin = corsOrigin(req);
+        res.writeHead(200, {
+          'content-type': image.contentType,
+          'content-length': image.bytes.byteLength,
+          'cache-control': 'private, no-store',
+          'x-content-type-options': 'nosniff',
+          ...(origin ? {
+            'access-control-allow-origin': origin,
+            'access-control-allow-credentials': 'true',
+            vary: 'Origin',
+          } : {}),
+        });
+        res.end(image.bytes);
+        return;
+      } catch (error) {
+        const status = error instanceof ArtworkFetchError ? error.status : 502;
+        return json(req, res, status, { error: error instanceof Error ? error.message : 'Provider artwork fetch failed' });
+      }
     }
     if (req.method === 'POST' && url.pathname === '/api/waveforms') {
       const input = await body(req);
@@ -135,10 +183,15 @@ const server = http.createServer(async (req, res) => {
     }
     return json(req, res, 404, { error: 'not found' });
   } catch (error) {
-    return json(req, res, 500, { error: error instanceof Error ? error.message : String(error) });
+    const status = error instanceof HttpInputError ? error.statusCode : 500;
+    return json(req, res, status, { error: error instanceof Error ? error.message : String(error) });
   }
 });
 
 server.listen(port, '0.0.0.0', () => {
   console.log(`SYCO23 Mixsets API listening on :${port}`);
 });
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => server.close(() => catalog.close()));
+}

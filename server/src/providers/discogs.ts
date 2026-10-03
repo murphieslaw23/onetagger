@@ -32,6 +32,31 @@ export class DiscogsEnricher {
     }
   }
 
+  async hydrateEntity(id: string, kind: 'artist' | 'crew' | 'label', signal?: AbortSignal): Promise<EntityRef | undefined> {
+    if (!/^\d+$/.test(id)) throw new Error('Discogs entity ID must be numeric');
+    const type = kind === 'label' ? 'labels' : 'artists';
+    const payload = await retry(() => withTimeout(async (inner) => {
+      const response = await fetch(new URL(`${type}/${id}`, API), { signal: inner, headers: this.headers() });
+      if (!response.ok) throw new Error(`Discogs entity ${response.status} ${response.statusText || 'request rejected'}`);
+      return response.json() as Promise<Record<string, unknown>>;
+    }, 12_000, signal));
+
+    if (String(payload.id) !== id) throw new Error('Discogs returned a different entity ID');
+    const name = String(payload.name || payload.title || '').trim();
+    if (!name) return undefined;
+    const images = Array.isArray(payload.images) ? payload.images as Array<{ uri?: unknown }> : [];
+    const profile = typeof payload.profile === 'string' ? payload.profile.replace(/\u0000/g, '').trim().slice(0, 20000) : undefined;
+    return {
+      kind,
+      name,
+      provider: this.id,
+      externalId: id,
+      url: typeof payload.uri === 'string' ? payload.uri : `https://www.discogs.com/${kind === 'label' ? 'label' : 'artist'}/${id}`,
+      imageUrl: typeof images[0]?.uri === 'string' ? images[0].uri : undefined,
+      profile: profile || undefined
+    };
+  }
+
   async enrichEntity(name: string, kind: 'artist' | 'crew' | 'label', signal?: AbortSignal): Promise<EntityRef[]> {
     const type = kind === 'label' ? 'label' : 'artist';
     const params = new URLSearchParams({ q: name, type, per_page: '5' });

@@ -3,6 +3,7 @@ node_modules/
 dist/
 client/dist/
 server/dist/
+**/data/
 .env
 .env.*
 !.env.example

@@ -159,8 +159,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useQuasar } from 'quasar';
+import { useRouter } from 'vue-router';
 import SourceBadge from '../components/SourceBadge.vue';
 import { useMixStore } from '../composables/useMixStore';
+import { CatalogApiError } from '../catalog/api';
+import { useCatalogStore } from '../catalog/store';
 import type { ImportJob, ProviderId } from '../domain/types';
 import {
   cancelDiscoveryJob,
@@ -168,16 +171,13 @@ import {
   getDiscoveryJob,
   getDiscoveryJobs,
   getProviderHealth,
+  ApiRequestError,
   type ApiDiscoveryJob,
   type ApiMixCandidate,
 } from '../services/api';
 
 const {
   state,
-  addDiscoveredCandidate,
-  enrichMixRecord,
-  findMixBySource,
-  findCandidateMatch,
   syncApiJobs,
   upsertApiJob,
   updateProviderHealth,
@@ -185,6 +185,8 @@ const {
 } = useMixStore();
 
 const $q = useQuasar();
+const router = useRouter();
+const catalog = useCatalogStore;
 const selectedProvider = ref<ProviderId>('freeteknomusic');
 const query = ref('https://archive.freeteknomusic.org/metek/');
 const maxDepth = ref(1);
@@ -220,11 +222,20 @@ function duration(ms: number) {
 }
 
 function indexedMix(candidate: ApiMixCandidate) {
-  return findMixBySource(candidate.source.url);
+  return catalog.state.records.find((record) => record.kind === 'mix'
+    && record.sources.some((source) => source.provider === candidate.provider
+      && (source.externalId === candidate.source.externalId || source.url === candidate.source.url)));
 }
 
 function matchingMix(candidate: ApiMixCandidate) {
-  return findCandidateMatch(candidate);
+  return indexedMix(candidate);
+}
+
+function providerResourceType(provider: ProviderId) {
+  if (provider === 'youtube') return 'video';
+  if (provider === 'soundcloud' || provider === 'hearthis') return 'track';
+  if (provider === 'archiveorg') return 'item';
+  return 'recording';
 }
 
 function providerQuery() {
@@ -272,7 +283,11 @@ async function queueDiscovery() {
     upsertApiJob(job);
     void pollJob(job.id);
   } catch (error) {
-    setApiState('offline');
+    if (error instanceof ApiRequestError && error.status === 401) {
+      await router.push('/login?redirect=/import');
+    } else {
+      setApiState('offline');
+    }
     $q.notify({
       type: 'negative',
       message: error instanceof Error ? error.message : 'Worker unavailable. No job was queued.',
@@ -334,28 +349,51 @@ async function runJobAction(job: ImportJob) {
 async function importCandidate(candidate: ApiMixCandidate) {
   busySources.value.add(candidate.source.url);
   try {
-    const mix = addDiscoveredCandidate(candidate);
+    const imported = await catalog.importCandidate({
+      provider: candidate.provider,
+      title: candidate.title,
+      artists: candidate.artists || [],
+      crews: candidate.crews || [],
+      durationMs: candidate.durationMs,
+      recordedAt: candidate.recordedAt,
+      description: candidate.description,
+      genres: candidate.genres || [],
+      artwork: candidate.artwork || [],
+      source: {
+        provider: candidate.provider,
+        resourceType: providerResourceType(candidate.provider),
+        externalId: candidate.source.externalId || candidate.source.url,
+        url: candidate.source.url
+      },
+      confidence: candidate.confidence,
+      reasons: candidate.reasons || []
+    });
+    const mix = imported.record;
+    if (mix.kind !== 'mix') throw new Error('The server returned a non-mix record for this import');
     if (!autoEnrich.value) {
-      $q.notify({ message: `Indexed “${mix.title}”`, position: 'top-right' });
+      $q.notify({ message: `${imported.outcome === 'existing' ? 'Already indexed' : 'Indexed'}: “${mix.title}”`, position: 'top-right' });
       return;
     }
 
-    const summary = await enrichMixRecord(mix);
-    const filled = summary.filledFields.length
-      ? `added ${summary.filledFields.join(', ')}`
-      : 'no new fields found';
-    const conflicts = summary.reviewCandidatesAdded
-      ? ` · ${summary.reviewCandidatesAdded} conflict${summary.reviewCandidatesAdded === 1 ? '' : 's'} sent to Review`
-      : '';
+    const summary = await catalog.enrichRecord(mix.id);
+    const message = summary.applied
+      ? `${summary.applied} field(s) added`
+      : 'No fields added';
+    const review = summary.reviewed ? ` · ${summary.reviewed} claim(s) sent to Review` : '';
+    const failures = summary.errors.length ? ` · ${summary.errors.length} provider result(s) unavailable` : '';
     $q.notify({
-      message: `Indexed + enriched “${mix.title}”: ${filled}${conflicts}${summary.failures.length ? ` · ${summary.failures.map((failure) => failure.provider).join(', ')} unavailable` : ''} · ${Math.round(mix.completeness * 100)}% complete`,
+      message: `Indexed “${mix.title}”: ${message}${review}${failures} · ${summary.missingFields.length} fields still missing`,
       position: 'top-right',
-      timeout: 5000,
+      timeout: 7000,
     });
   } catch (error) {
+    if (error instanceof CatalogApiError && error.status === 401) {
+      await router.push('/login?redirect=/import');
+      return;
+    }
     $q.notify({
-      type: 'warning',
-      message: `Mix indexed, but enrichment could not complete: ${error instanceof Error ? error.message : String(error)}`,
+      type: 'negative',
+      message: `No catalog change was confirmed: ${error instanceof Error ? error.message : String(error)}`,
       timeout: 5000,
     });
   } finally {
@@ -365,9 +403,15 @@ async function importCandidate(candidate: ApiMixCandidate) {
 
 onMounted(async () => {
   try {
-    const [jobs, health] = await Promise.all([getDiscoveryJobs(), getProviderHealth()]);
-    syncApiJobs(jobs);
+    const [health, authenticated] = await Promise.all([getProviderHealth(), catalog.checkSession()]);
     updateProviderHealth(health);
+    if (authenticated) {
+      const jobs = await getDiscoveryJobs();
+      syncApiJobs(jobs);
+      await catalog.loadReview();
+    } else {
+      syncApiJobs([]);
+    }
     setApiState('online');
   } catch {
     setApiState('offline');

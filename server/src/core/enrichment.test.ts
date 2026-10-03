@@ -103,6 +103,60 @@ test('enrichMix skips an unavailable SoundCloud provider before search', async (
   assert.ok(result.failures.some((failure) => failure.provider === 'soundcloud'));
 });
 
+test('enrichMix queries only explicitly selected providers', async () => {
+  let archiveSearched = false;
+  let soundcloudSearched = false;
+  let discogsChecked = false;
+  const makeProvider = (id: 'archiveorg' | 'soundcloud', mark: () => void) => ({
+    id,
+    async health() { return { id, state: 'ready' as const, detail: 'ok', checkedAt: new Date().toISOString() }; },
+    async search() { mark(); return []; },
+  });
+  const registry = {
+    discovery: new Map([
+      ['archiveorg', makeProvider('archiveorg', () => { archiveSearched = true; })],
+      ['soundcloud', makeProvider('soundcloud', () => { soundcloudSearched = true; })],
+    ]),
+    discogs: {
+      async health() { discogsChecked = true; return { state: 'ready' as const, detail: 'ok' }; },
+      async enrichEntity() { return []; },
+    },
+  } as unknown as ProviderRegistry;
+
+  const result = await enrichMix(registry, {
+    title: 'Known mix', artists: ['Known artist'], providers: ['archiveorg'],
+  });
+
+  assert.equal(archiveSearched, true);
+  assert.equal(soundcloudSearched, false);
+  assert.equal(discogsChecked, false);
+  assert.deepEqual(result.attempted, ['archiveorg']);
+});
+
+test('enrichMix refreshes provider capabilities even when that provider already has a linked source', async () => {
+  let searched = false;
+  const soundcloud = {
+    id: 'soundcloud' as const,
+    async health() {
+      return { id: 'soundcloud' as const, state: 'ready' as const, detail: 'ok', checkedAt: new Date().toISOString() };
+    },
+    async search() {
+      searched = true;
+      return [];
+    }
+  };
+  const registry = {
+    discovery: new Map([['soundcloud', soundcloud]]),
+    discogs: { async health() { return { id: 'discogs' as const, state: 'offline' as const, detail: 'unavailable', checkedAt: new Date().toISOString() }; } }
+  } as unknown as ProviderRegistry;
+  const result = await enrichMix(registry, {
+    title: 'Known mix', artists: ['Known artist'],
+    sources: [{ provider: 'soundcloud', url: 'https://soundcloud.com/artist/known-mix' }]
+  });
+  assert.equal(searched, true);
+  assert.ok(result.attempted.includes('soundcloud'));
+});
+
 test('enrichMix fills cover from an indexed SoundCloud source without replacing canonical metadata', async () => {
   const registry = {
     discovery: new Map(),

@@ -1,41 +1,41 @@
 # Architecture
 
-The browser is a review/control surface. Provider credentials and remote requests stay server-side.
+The browser is a public archive and curator control surface. The Node worker owns provider credentials, canonical catalog records, field evidence, review decisions and generated media.
 
 ```text
-Vue / Quasar web
-  -> /api/jobs
-  -> /api/jobs/:id
-  -> /api/providers
-  -> /api/enrich
-  -> /api/artwork/preview
-  -> /api/waveforms
-  -> /api/discogs/enrich
+Vue 3 / Quasar
+  -> shared Zod domain contracts
+  -> credentialed catalog API
+       -> public paginated mix / artist / crew / label / event indexes
+       -> curator login, import, edit, enrich and review
 
-Node API
-  -> ProviderRegistry
-       -> FreeteknomusicProvider
-       -> SoundCloudProvider
-       -> ArchiveOrgProvider
-       -> YouTubeProvider
-       -> HearthisProvider
-       -> DiscogsEnricher
-  -> InMemoryJobQueue (development)
-       -> future durable queue / worker
-  -> WaveformQueue (bounded, on-demand FFmpeg analysis)
+Node 22.23.3 worker
+  -> provider registry and existing discovery adapters
+  -> identity resolution and conservative field-claim merger
+  -> SQLite repository (one VPS worker, WAL, foreign keys)
+  -> persistent media directory (validated waveform PNGs)
+  -> in-memory discovery and waveform job queues
 ```
 
-## Core rules
+## Persistence boundaries
 
-1. A long mix is not a track; release-track matching is not the primary identity model.
-2. Discovery is non-destructive. Provider results become candidates.
-3. Canonical fields keep provenance and confidence.
-4. Recursive crawling is bounded by depth, item count, timeout and cancellation.
-5. Freeteknomusic discovery never downloads full audio only to infer metadata.
-6. Provider secrets never enter the browser bundle.
-7. Duplicate detection uses normalized identity plus coarse duration buckets; future audio fingerprints can strengthen it.
-8. Multi-instance production requires replacing `InMemoryJobQueue` and `WaveformQueue` with persistent queues.
+- `packages/domain` owns strict canonical/provider/import schemas, normalization, field validation and shared missing-field definitions.
+- `server/src/catalog/repository.ts` owns records, provider/resource identities, typed relationships, aliases, claims, decisions, sessions, migration batches and media references.
+- Network requests and audio decoding happen before short synchronous SQLite transactions.
+- SQLite uses a persistent Docker volume at `/app/data`; online backups are verified before restore, and restore targets must be new paths.
+- Browser state is a cache only. A mutation updates UI state after the API returns its committed canonical record. Local records remain available until migration is acknowledged.
 
-## Production queue seam
+## Identity and evidence
 
-The queue API is intentionally small: create/get/list/cancel. It can be replaced by Redis/BullMQ, Postgres/Supabase, Convex or an existing SYCO23 worker. Persist candidates separately from canonical MixSet records so review remains auditable.
+1. A provider identity is `(provider, resourceType, externalId)`; equal IDs in different namespaces remain distinct.
+2. Repeated source imports are idempotent. Names alone never merge artists or events.
+3. Direct claims automatically fill gaps only for linked provider identities and confirmed records. Parsed or uncertain matches stay in Review.
+4. Conflicts preserve selected fields. Decisions carry the current record revision; stale items must be refreshed.
+5. Cover, artist portrait, crew/label logos, event flyers and waveforms are separate asset roles.
+6. Recording, upload and event dates remain separate; upload dates and channel names are not recording facts or performers.
+
+## Access and operations
+
+Public readers can list and open confirmed records. Proposed identity details are hidden from public index and detail routes. Curator writes require a scrypt password hash, rate-limited login, hashed server-side session tokens, an HTTP-only cookie, and an exact configured origin. Development permits only the two local Vite origins; production has no implicit origin.
+
+Discovery jobs and waveform jobs remain in memory and are scoped to the single running worker. Restarting the worker preserves catalog data, claims and media, but active jobs are not durable yet. Multi-worker deployment is not supported until those queues are persisted.
