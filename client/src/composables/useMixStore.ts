@@ -154,11 +154,10 @@ export function useMixStore() {
   }
 
   function markReviewed(mix: MixSet) {
-    for (const candidate of mix.candidates) {
-      if (candidate.state === 'pending') candidate.state = 'rejected';
-    }
+    if (mix.candidates.some((candidate) => candidate.state === 'pending')) return false;
     mix.status = 'ready';
     mix.updatedAt = new Date().toISOString();
+    return true;
   }
 
   function addDiscoveredCandidate(candidate: ApiMixCandidate): MixSet {
@@ -211,7 +210,7 @@ export function useMixStore() {
     return state.mixes[0];
   }
 
-  function applyEnrichmentResult(mix: MixSet, result: ApiEnrichmentResult) {
+  function applyEnrichmentResult(mix: MixSet, result: ApiEnrichmentResult, previousStatus: MixSet['status'] = mix.status) {
     const filled = new Set<string>();
     const patch = result.patch;
 
@@ -286,9 +285,10 @@ export function useMixStore() {
 
     refreshCompleteness(mix);
     mix.updatedAt = observedAt;
-    mix.status = reviewCandidatesAdded || mix.candidates.some((candidate) => candidate.state === 'pending')
+    const hasPendingConflicts = reviewCandidatesAdded > 0 || mix.candidates.some((candidate) => candidate.state === 'pending');
+    mix.status = hasPendingConflicts
       ? 'review'
-      : mix.confidence >= 0.82
+      : previousStatus === 'ready' || mix.confidence >= 0.82
         ? 'ready'
         : 'review';
 
@@ -306,7 +306,7 @@ export function useMixStore() {
     mix.updatedAt = new Date().toISOString();
     try {
       const result = await enrichMixMetadata(mix);
-      return applyEnrichmentResult(mix, result);
+      return applyEnrichmentResult(mix, result, previousStatus);
     } catch (error) {
       mix.status = previousStatus === 'enriching' ? 'review' : previousStatus;
       mix.updatedAt = new Date().toISOString();

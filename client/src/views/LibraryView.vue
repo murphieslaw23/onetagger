@@ -129,8 +129,18 @@ async function enrichSelected() {
 }
 
 function markSelectedReviewed() {
-  for (const mix of selectedMixes.value) markReviewed(mix);
-  $q.notify({ message: `${selectedMixes.value.length} record(s) marked reviewed`, position: 'top-right' });
+  let marked = 0;
+  let skipped = 0;
+  for (const mix of selectedMixes.value) {
+    if (markReviewed(mix)) marked += 1;
+    else skipped += 1;
+  }
+  $q.notify({
+    type: skipped ? 'warning' : 'positive',
+    message: `${marked} record(s) marked reviewed${skipped ? `; ${skipped} skipped because conflicts are still pending` : ''}`,
+    position: 'top-right',
+    timeout: 5000,
+  });
   clearSelection();
 }
 
