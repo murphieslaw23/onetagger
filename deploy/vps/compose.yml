@@ -23,7 +23,7 @@ services:
     environment:
       PORT: 8787
       NODE_ENV: production
-      CORS_ORIGIN: ${CORS_ORIGIN:-https://syco23-mixsets.vercel.app}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://mixsets.syco23.org,https://syco23-mixsets.vercel.app,https://syco23-mixsets-system-corrupt.vercel.app}
       SOUNDCLOUD_ACCESS_TOKEN: ${SOUNDCLOUD_ACCESS_TOKEN:-}
       DISCOGS_TOKEN: ${DISCOGS_TOKEN:-}
     ports:
