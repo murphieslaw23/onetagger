@@ -13,6 +13,8 @@ RUN pnpm --dir server build
 FROM node:22-alpine AS runtime
 WORKDIR /app
 
+RUN apk add --no-cache ffmpeg
+
 ENV NODE_ENV=production
 ENV PORT=8787
 

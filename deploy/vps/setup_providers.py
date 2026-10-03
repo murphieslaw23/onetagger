@@ -90,6 +90,15 @@ def validate_discogs(token: str) -> None:
     )
 
 
+def validate_youtube(api_key: str) -> None:
+    request_json(
+        'https://www.googleapis.com/youtube/v3/videos?' + urlencode({
+            'part': 'id', 'id': 'dQw4w9WgXcQ', 'key': api_key,
+        }),
+        {'Accept': 'application/json'},
+    )
+
+
 def save_env(env_file: Path, values: dict[str, str]) -> None:
     existing = env_file.read_text() if env_file.exists() else env_file.with_name('.env.example').read_text()
     updated = replace_values(existing, values)
@@ -134,7 +143,7 @@ def restart_and_check(provider: str, env_file: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description='Set up Mixsets provider credentials on VPS-L without exposing them in the browser or shell history.')
-    parser.add_argument('provider', choices=['soundcloud', 'discogs'])
+    parser.add_argument('provider', choices=['soundcloud', 'discogs', 'youtube'])
     parser.add_argument('--check', action='store_true', help='Check current worker state without changing credentials')
     args = parser.parse_args()
 
@@ -150,10 +159,14 @@ def main() -> int:
             client_secret = safe_value(getpass.getpass('SoundCloud Client Secret: '))
             validate_soundcloud(client_id, client_secret)
             values = {'SOUNDCLOUD_CLIENT_ID': client_id, 'SOUNDCLOUD_CLIENT_SECRET': client_secret}
-        else:
+        elif args.provider == 'discogs':
             token = safe_value(getpass.getpass('Discogs personal API token: '))
             validate_discogs(token)
             values = {'DISCOGS_TOKEN': token}
+        else:
+            api_key = safe_value(getpass.getpass('YouTube Data API key: '))
+            validate_youtube(api_key)
+            values = {'YOUTUBE_API_KEY': api_key}
         print(f'{args.provider}: credentials verified with the provider')
         save_env(ENV_FILE, values)
         print('Credentials saved privately; restarting the Mixsets worker…')

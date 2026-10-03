@@ -34,8 +34,8 @@
             <q-icon :name="enriching ? 'mdi-loading mdi-spin' : 'mdi-database-sync-outline'" />
             {{ enriching ? 'Enriching…' : 'Enrich missing metadata' }}
           </button>
-          <button v-if="!mix.artwork.length" class="btn" type="button" :aria-expanded="showSoundCloudLink" aria-controls="soundcloud-cover-link" @click="toggleSoundCloudLink">
-            <q-icon name="mdi-image-plus-outline" /> Add cover from SoundCloud link
+          <button v-if="!mix.artwork.length" class="btn" type="button" :aria-expanded="showCoverLink" aria-controls="public-cover-link" @click="toggleCoverLink">
+            <q-icon name="mdi-image-plus-outline" /> Add cover from public link
           </button>
           <router-link v-if="pendingCandidates.length" to="/review" class="btn">
             <q-icon name="mdi-source-merge" /> Review {{ pendingCandidates.length }} conflict{{ pendingCandidates.length === 1 ? '' : 's' }}
@@ -45,21 +45,22 @@
           </button>
         </div>
 
-        <section v-if="showSoundCloudLink && !mix.artwork.length" id="soundcloud-cover-link" class="soundcloud-cover-link" aria-label="Add SoundCloud cover">
-          <strong>Have a public SoundCloud link for this mix?</strong>
-          <p>Preview its track cover without an API account. Confirm the preview belongs to this mix before using it.</p>
+        <section v-if="showCoverLink && !mix.artwork.length" id="public-cover-link" class="soundcloud-cover-link" aria-label="Add cover from public link">
+          <strong>Have a public link for this mix?</strong>
+          <p>Preview a SoundCloud, YouTube, or hearthis.at cover without an API account. Confirm it belongs to this mix before using it.</p>
+          <a :href="youtubeSearchUrl" target="_blank" rel="noopener noreferrer">Search YouTube for this mix <q-icon name="mdi-open-in-new" size="12px" /></a>
           <form @submit.prevent="previewCover">
-            <label for="soundcloud-cover-url">SoundCloud track URL</label>
+            <label for="public-cover-url">Public track or video URL</label>
             <div class="soundcloud-cover-link__form">
-              <input id="soundcloud-cover-url" v-model.trim="soundCloudUrl" type="url" required placeholder="https://soundcloud.com/artist/mix" autocomplete="url" @input="clearCoverPreview" />
+              <input id="public-cover-url" v-model.trim="coverUrl" type="url" required placeholder="https://hearthis.at/artist/mix/" autocomplete="url" @input="clearCoverPreview" />
               <button class="btn" type="submit" :disabled="previewing">{{ previewing ? 'Checking…' : 'Preview cover' }}</button>
             </div>
           </form>
           <p v-if="coverError" class="soundcloud-cover-link__error" role="alert">{{ coverError }}</p>
           <div v-if="coverPreview" class="soundcloud-cover-link__preview">
-            <img :src="coverPreview.artworkUrl" :alt="'SoundCloud cover for ' + (coverPreview.title || 'track')" />
+            <img :src="coverPreview.artworkUrl" :alt="'Cover for ' + (coverPreview.title || 'track')" />
             <div>
-              <small>SOUNDCLOUD PREVIEW</small>
+              <small>{{ coverPreview.provider.toUpperCase() }} PREVIEW</small>
               <strong>{{ coverPreview.title || 'Public track' }}</strong>
               <button class="btn btn--primary" type="button" @click="confirmCover">Use this cover</button>
             </div>
@@ -81,8 +82,17 @@
     </section>
 
     <section class="signal-panel">
-      <div class="panel-head"><span>AUDIO ANALYSIS</span><b>{{ mix.bpmRange || mix.loudnessLufs !== undefined ? 'METRICS / WAVEFORM PENDING' : 'NOT RUN' }}</b></div>
-      <WaveformStrip />
+      <div class="panel-head"><span>AUDIO ANALYSIS</span><b>{{ mix.waveform ? 'WAVEFORM ANALYZED' : analyzing ? `ANALYZING ${analysisProgress}%` : 'NOT RUN' }}</b></div>
+      <WaveformStrip :image-data-url="mix.waveform?.imageDataUrl" />
+      <div class="waveform-action">
+        <button v-if="!mix.waveform && audioSource" class="btn" type="button" :disabled="analyzing" @click="runWaveformAnalysis">
+          <q-icon :name="analyzing ? 'mdi-loading mdi-spin' : 'mdi-waveform'" />
+          {{ analyzing ? `Analyzing audio ${analysisProgress}%` : 'Analyze waveform' }}
+        </button>
+        <small v-if="!audioSource">A direct public audio file is needed for waveform analysis.</small>
+        <small v-else-if="!mix.waveform">Analyzes the full recording. Large mixes may take several minutes.</small>
+        <small v-else>Analyzed {{ new Date(mix.waveform.analyzedAt).toLocaleString() }}</small>
+      </div>
       <div class="signal-footer">
         <span>{{ mix.bpmRange ? mix.bpmRange.join('–') + ' BPM' : 'BPM pending' }}</span>
         <span>{{ mix.genres.concat(mix.styles).join(' / ') || 'Genre pending' }}</span>
@@ -159,14 +169,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useQuasar } from 'quasar';
 import ArtworkFrame from '../components/ArtworkFrame.vue';
 import SourceBadge from '../components/SourceBadge.vue';
 import WaveformStrip from '../components/WaveformStrip.vue';
 import { useMixStore } from '../composables/useMixStore';
-import { previewSoundCloudArtwork } from '../services/api';
+import { createWaveformJob, getWaveformJob, previewPublicArtwork } from '../services/api';
 
 const route = useRoute();
 const $q = useQuasar();
@@ -176,18 +186,28 @@ const {
   rejectCandidate,
   markReviewed,
   enrichMixRecord,
-  useSoundCloudCover,
+  useLinkedCover,
 } = useMixStore();
 
 const enriching = ref(false);
+const analyzing = ref(false);
+const analysisProgress = ref(0);
+let mounted = true;
+onBeforeUnmount(() => { mounted = false; });
 const previewing = ref(false);
-const showSoundCloudLink = ref(false);
-const soundCloudUrl = ref('');
+const showCoverLink = ref(false);
+const coverUrl = ref('');
 const coverError = ref('');
-const coverPreview = ref<Awaited<ReturnType<typeof previewSoundCloudArtwork>> | null>(null);
+const coverPreview = ref<Awaited<ReturnType<typeof previewPublicArtwork>> | null>(null);
 const coverPreviewMixId = ref<string | null>(null);
 const mix = computed(() => findMix(String(route.params.id)));
 const pendingCandidates = computed(() => mix.value?.candidates.filter((candidate) => candidate.state === 'pending') ?? []);
+const audioSource = computed(() => {
+  const urls = [mix.value?.fileUrl, ...(mix.value?.sources.map((source) => source.url) || [])];
+  return urls.find((url) => url && /^https:\/\/(?:[^/]+\.)?(?:freeteknomusic\.org|archive\.org)\//i.test(url)
+    && /\.(?:mp3|flac|ogg|oga|wav|m4a|aac)(?:[?#]|$)/i.test(url));
+});
+const youtubeSearchUrl = computed(() => `https://www.youtube.com/results?search_query=${encodeURIComponent([mix.value?.artists.join(' '), mix.value?.title].filter(Boolean).join(' '))}`);
 
 const duration = computed(() => {
   if (!mix.value?.durationMs) return 'Unknown';
@@ -224,14 +244,44 @@ async function runEnrichment() {
   enriching.value = true;
   try {
     const summary = await enrichMixRecord(mix.value);
-    const filled = summary.filledFields.length ? summary.filledFields.join(', ') : 'no missing fields';
+    const filled = summary.filledFields.length ? `added ${summary.filledFields.join(', ')}` : 'no new fields found';
     const review = summary.reviewCandidatesAdded ? ` · ${summary.reviewCandidatesAdded} conflict(s) queued for review` : '';
-    const failed = summary.failures.length ? ` · ${summary.failures.length} provider(s) unavailable` : '';
-    $q.notify({ message: `Enrichment finished: ${filled}${review}${failed}`, position: 'top-right', timeout: 5000 });
+    const failed = summary.failures.length ? ` · ${summary.failures.map((failure) => failure.provider).join(', ')} unavailable` : '';
+    $q.notify({ message: `Enrichment finished: ${filled}${review}${failed} · ${missingFields.value.length} fields still missing`, position: 'top-right', timeout: 8000 });
   } catch (error) {
     $q.notify({ type: 'negative', message: error instanceof Error ? error.message : 'Enrichment failed' });
   } finally {
     enriching.value = false;
+  }
+}
+
+async function runWaveformAnalysis() {
+  const current = mix.value;
+  const sourceUrl = audioSource.value;
+  if (!current || !sourceUrl || analyzing.value) return;
+  analyzing.value = true;
+  analysisProgress.value = 0;
+  try {
+    const started = await createWaveformJob(sourceUrl);
+    for (let attempt = 0; attempt < 160; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+      if (!mounted) return;
+      const job = await getWaveformJob(started.id);
+      analysisProgress.value = job.progress;
+      if (job.state === 'error') throw new Error(job.error || 'Audio analysis failed');
+      if (job.state === 'done') {
+        if (!job.imageDataUrl || !job.analyzedAt) throw new Error('The worker returned no waveform');
+        current.waveform = { imageDataUrl: job.imageDataUrl, analyzedAt: job.analyzedAt, sourceUrl };
+        current.updatedAt = new Date().toISOString();
+        $q.notify({ message: 'Waveform generated from the full audio recording', position: 'top-right' });
+        return;
+      }
+    }
+    throw new Error('Audio analysis is still running; retry shortly');
+  } catch (error) {
+    $q.notify({ type: 'negative', message: error instanceof Error ? error.message : 'Audio analysis failed' });
+  } finally {
+    analyzing.value = false;
   }
 }
 
@@ -247,26 +297,32 @@ function clearCoverPreview() {
   coverError.value = '';
 }
 
-function toggleSoundCloudLink() {
-  showSoundCloudLink.value = !showSoundCloudLink.value;
+function toggleCoverLink() {
+  showCoverLink.value = !showCoverLink.value;
   clearCoverPreview();
 }
 
 async function previewCover() {
   if (!mix.value || previewing.value) return;
-  const requestedUrl = soundCloudUrl.value;
+  const requestedUrl = coverUrl.value;
   const requestedMixId = mix.value.id;
   previewing.value = true;
   clearCoverPreview();
   try {
-    const result = await previewSoundCloudArtwork(requestedUrl);
-    if (soundCloudUrl.value === requestedUrl && mix.value?.id === requestedMixId && showSoundCloudLink.value) {
+    const host = new URL(requestedUrl).hostname.toLowerCase();
+    const provider = host === 'soundcloud.com' || host === 'www.soundcloud.com' || host === 'on.soundcloud.com'
+      ? 'soundcloud' : host === 'hearthis.at' || host === 'www.hearthis.at'
+        ? 'hearthis' : ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be'].includes(host)
+          ? 'youtube' : null;
+    if (!provider) throw new Error('Use a public SoundCloud, YouTube, or hearthis.at link');
+    const result = await previewPublicArtwork(provider, requestedUrl);
+    if (coverUrl.value === requestedUrl && mix.value?.id === requestedMixId && showCoverLink.value) {
       coverPreview.value = result;
       coverPreviewMixId.value = requestedMixId;
     }
   } catch (error) {
-    if (soundCloudUrl.value === requestedUrl && mix.value?.id === requestedMixId && showSoundCloudLink.value) {
-      coverError.value = error instanceof Error ? error.message : 'SoundCloud cover lookup failed';
+    if (coverUrl.value === requestedUrl && mix.value?.id === requestedMixId && showCoverLink.value) {
+      coverError.value = error instanceof Error ? error.message : 'Cover lookup failed';
     }
   } finally {
     previewing.value = false;
@@ -276,12 +332,12 @@ async function previewCover() {
 function confirmCover() {
   if (!mix.value || !coverPreview.value || coverPreviewMixId.value !== mix.value.id) return;
   try {
-    useSoundCloudCover(mix.value, coverPreview.value.sourceUrl, coverPreview.value.artworkUrl);
+    useLinkedCover(mix.value, coverPreview.value.provider, coverPreview.value.sourceUrl, coverPreview.value.artworkUrl);
     coverPreview.value = null;
-    showSoundCloudLink.value = false;
-    $q.notify({ message: 'SoundCloud cover added without replacing other metadata', position: 'top-right' });
+    showCoverLink.value = false;
+    $q.notify({ message: 'Cover added without replacing other metadata', position: 'top-right' });
   } catch (error) {
-    coverError.value = error instanceof Error ? error.message : 'Could not add SoundCloud cover';
+    coverError.value = error instanceof Error ? error.message : 'Could not add cover';
   }
 }
 </script>

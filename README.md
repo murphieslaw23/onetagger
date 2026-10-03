@@ -14,10 +14,12 @@ The active web product no longer contains OneTagger's AutoTagger, QuickTag, trac
 - **SoundCloud** — official API only; long-form discovery uses duration filtering and private app credentials. Already-linked public tracks can supply cover art through oEmbed.
 - **Internet Archive** — Advanced Search + Metadata API.
 - **Discogs** — artist / crew-like artist / label enrichment and images, not long-mix track matching.
+- **YouTube** — known public video metadata and thumbnails without credentials; text search with a private Data API key.
+- **hearthis.at** — public track search, metadata and track artwork without credentials, subject to provider limits.
 
 See [docs/PROVIDERS.md](docs/PROVIDERS.md).
 
-The Providers screen links to official registration pages and shows the private VPS-L setup commands for SoundCloud and Discogs. Credentials are entered only in an interactive VPS terminal, never in the public web app.
+The Providers screen links to setup guides for SoundCloud, Discogs and YouTube. Credentials are entered only in an interactive VPS terminal, never in the public web app. A known public SoundCloud, YouTube or hearthis.at link can be previewed as artwork from a mix detail view. Direct public Freeteknomusic and Archive.org audio can be analyzed into a real waveform on demand.
 
 ## Local development
 

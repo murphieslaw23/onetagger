@@ -7,6 +7,9 @@ Vue / Quasar web
   -> /api/jobs
   -> /api/jobs/:id
   -> /api/providers
+  -> /api/enrich
+  -> /api/artwork/preview
+  -> /api/waveforms
   -> /api/discogs/enrich
 
 Node API
@@ -14,9 +17,12 @@ Node API
        -> FreeteknomusicProvider
        -> SoundCloudProvider
        -> ArchiveOrgProvider
+       -> YouTubeProvider
+       -> HearthisProvider
        -> DiscogsEnricher
   -> InMemoryJobQueue (development)
        -> future durable queue / worker
+  -> WaveformQueue (bounded, on-demand FFmpeg analysis)
 ```
 
 ## Core rules
@@ -28,7 +34,7 @@ Node API
 5. Freeteknomusic discovery never downloads full audio only to infer metadata.
 6. Provider secrets never enter the browser bundle.
 7. Duplicate detection uses normalized identity plus coarse duration buckets; future audio fingerprints can strengthen it.
-8. Multi-instance production requires replacing `InMemoryJobQueue` with a persistent queue.
+8. Multi-instance production requires replacing `InMemoryJobQueue` and `WaveformQueue` with persistent queues.
 
 ## Production queue seam
 

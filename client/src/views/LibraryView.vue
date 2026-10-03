@@ -24,6 +24,8 @@
         <option value="freeteknomusic">Freeteknomusic</option>
         <option value="soundcloud">SoundCloud</option>
         <option value="archiveorg">Archive.org</option>
+        <option value="youtube">YouTube</option>
+        <option value="hearthis">hearthis.at</option>
         <option value="discogs">Discogs</option>
       </select>
       <select v-model="state.status" aria-label="Status filter">

@@ -7,6 +7,10 @@ const MEDIA_HOSTS = new Set(['freeteknomusic.org', 'www.freeteknomusic.org']);
 const AUDIO_EXT = /\.(mp3|flac|wav|ogg|m4a|aiff?)$/i;
 const IGNORE = /(^|\/)(\.ds_store|thumbs\.db|desktop\.ini|cover\.(jpe?g|png)|folder\.(jpe?g|png))$/i;
 
+function safeDecode(value: string): string {
+  try { return decodeURIComponent(value); } catch { return value; }
+}
+
 function allowedUrl(url: URL, isDirectory: boolean): boolean {
   if (isDirectory) return url.protocol === 'https:' && url.hostname === ARCHIVE_HOST;
   return ['http:', 'https:'].includes(url.protocol) && (url.hostname === ARCHIVE_HOST || MEDIA_HOSTS.has(url.hostname));
@@ -77,10 +81,11 @@ export function parseDirectoryListing(html: string, baseUrl: string): DirectoryE
 }
 
 function filenameIdentity(name: string, pathContext: string): { title: string; artist: string[]; recordedAt?: string } {
-  const stem = decodeURIComponent(name).replace(AUDIO_EXT, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const stem = safeDecode(name).replace(AUDIO_EXT, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
   const parts = stem.split(/\s+-\s+/).map((part) => part.trim()).filter(Boolean);
-  const title = parts.length > 1 ? parts.slice(1).join(' — ') : stem;
-  const artist = parts.length > 1 ? [parts[0]] : [decodeURIComponent(new URL(pathContext).pathname.split('/').filter(Boolean).at(-1) || 'Unknown')];
+  const leadingArtist = parts.length === 1 ? stem.match(/^([a-z0-9@._]+(?:\s+vs\.?\s+[a-z0-9@._]+)?)\s+(?=(?:live(?:set|act)?|mix)\b)/i) : null;
+  const title = parts.length > 1 ? parts.slice(1).join(' — ') : leadingArtist ? stem.slice(leadingArtist[0].length).trim() : stem;
+  const artist = parts.length > 1 ? [parts[0]] : leadingArtist ? [leadingArtist[1]] : [safeDecode(new URL(pathContext).pathname.split('/').filter(Boolean).at(-1) || 'Unknown')];
   const date = stem.match(/\b((?:19|20)\d{2})[-._ ]?(0?[1-9]|1[0-2])?[-._ ]?(0?[1-9]|[12]\d|3[01])?\b/);
   return {
     title,
@@ -107,7 +112,14 @@ export class FreeteknomusicProvider implements DiscoveryProvider {
   }
 
   async search(query: SearchQuery, signal?: AbortSignal): Promise<MixCandidate[]> {
-    const start = query.url ? new URL(query.url, ROOT) : new URL(query.q && /^https?:/i.test(query.q) ? query.q : ROOT);
+    let start = query.url ? new URL(query.url, ROOT) : new URL(query.q && /^https?:/i.test(query.q) ? query.q : ROOT);
+    if (!query.url && query.q && /^[a-z0-9_-]{2,80}$/i.test(query.q.trim())) {
+      const direct = new URL(`${encodeURIComponent(query.q.trim().toLowerCase())}/`, ROOT);
+      try {
+        const response = await withTimeout((inner) => fetch(direct, { method: 'HEAD', signal: inner }), 7000, signal);
+        if (response.ok) start = direct;
+      } catch { /* Fall back to bounded root crawl. */ }
+    }
     if (start.origin !== new URL(ROOT).origin) throw new Error('Freeteknomusic crawl must remain on archive.freeteknomusic.org');
     if (!start.pathname.endsWith('/') && !AUDIO_EXT.test(start.pathname)) start.pathname += '/';
 

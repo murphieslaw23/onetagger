@@ -132,18 +132,18 @@ export function useMixStore() {
     mix.completeness = calculateCompleteness(mix);
   }
 
-  function useSoundCloudCover(mix: MixSet, sourceUrl: string, artworkUrl: string) {
+  function useLinkedCover(mix: MixSet, provider: ProviderId, sourceUrl: string, artworkUrl: string) {
     if (mix.artwork.length) throw new Error('This mix already has cover artwork');
     const sourcePath = new URL(sourceUrl).pathname.replace(/\/$/, '');
     const linkedMix = state.mixes.find((item) => item.sources.some((source) => {
-      if (source.provider !== 'soundcloud') return false;
+      if (source.provider !== provider) return false;
       try { return new URL(source.url).pathname.replace(/\/$/, '') === sourcePath; } catch { return false; }
     }));
-    if (linkedMix && linkedMix.id !== mix.id) throw new Error('That SoundCloud track is already linked to another mix');
-    if (!linkedMix) mix.sources.push({ provider: 'soundcloud', url: sourceUrl });
-    mix.artwork.push({ url: artworkUrl, source: 'soundcloud', kind: 'cover' });
+    if (linkedMix && linkedMix.id !== mix.id) throw new Error('That track is already linked to another mix');
+    if (!linkedMix && !mix.sources.some((source) => source.provider === provider && source.url === sourceUrl)) mix.sources.push({ provider, url: sourceUrl });
+    mix.artwork.push({ url: artworkUrl, source: provider, kind: 'cover' });
     mix.provenance.push({
-      provider: 'soundcloud',
+      provider,
       field: 'artwork',
       confidence: 0.99,
       observedAt: new Date().toISOString(),
@@ -292,7 +292,7 @@ export function useMixStore() {
     if (patch.externalIds) {
       for (const [key, id] of Object.entries(patch.externalIds)) {
         if (mix.externalIds[key] && mix.externalIds[key] !== id) {
-          const provider: ProviderId = key === 'soundcloud' ? 'soundcloud' : key === 'archiveorg' ? 'archiveorg' : 'discogs';
+          const provider: ProviderId = key === 'soundcloud' ? 'soundcloud' : key === 'archiveorg' ? 'archiveorg' : key === 'youtube' ? 'youtube' : key === 'hearthis' ? 'hearthis' : 'discogs';
           queueClaim(`enrich-${provider}-id-${safeId(key)}`, {
             externalIds: { [key]: id },
           }, `${provider} ${key} differs from the canonical ID`, provider);
@@ -350,6 +350,11 @@ export function useMixStore() {
       if (candidate.artists?.length && !sameList(candidate.artists, mix.artists)) fields.artists = candidate.artists;
       if (candidate.recordedAt && mix.recordedAt && candidate.recordedAt !== mix.recordedAt) fields.recordedAt = candidate.recordedAt;
       if (candidate.genres?.length && mix.genres.length && !sameList(candidate.genres, mix.genres)) fields.genres = candidate.genres;
+      if (candidate.description && mix.description && candidate.description !== mix.description) fields.description = candidate.description;
+      if (candidate.durationMs && mix.durationMs && Math.abs(candidate.durationMs - mix.durationMs) > 60_000) fields.durationMs = candidate.durationMs;
+      if (candidate.artwork?.length && mix.artwork.length && !mix.artwork.some((art) => candidate.artwork?.includes(art.url))) {
+        fields.artwork = candidate.artwork.map((url) => ({ url, source: candidate.provider, kind: 'cover' as const }));
+      }
       if (!Object.keys(fields).length) continue;
 
       const id = `enrich-${candidate.provider}-${safeId(candidate.source.externalId || candidate.source.url)}`;
@@ -460,7 +465,7 @@ export function useMixStore() {
     findMix,
     findMixBySource,
     findCandidateMatch,
-    useSoundCloudCover,
+    useLinkedCover,
     applyCandidate,
     rejectCandidate,
     markReviewed,

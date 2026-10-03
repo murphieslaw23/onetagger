@@ -1,6 +1,7 @@
 import type { EntityRef, MixCandidate, ProviderId, SourceRef } from '../domain.js';
 import { normalizeQuery, overlapScore } from './utils.js';
 import type { ProviderRegistry } from './registry.js';
+import { probeAudioDuration } from './waveform.js';
 
 export interface MixEnrichmentInput {
   title: string;
@@ -90,7 +91,7 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
       attempted.push(id);
       try {
         const health = await provider.health();
-        if (health.state === 'offline' || (id === 'soundcloud' && health.state !== 'ready')) {
+        if (health.state === 'offline' || (['soundcloud', 'youtube', 'hearthis'].includes(id) && health.state !== 'ready')) {
           failures.push({ provider: id, error: health.detail });
           return;
         }
@@ -110,18 +111,35 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
   const externalIds: Record<string, string> = {};
   const artwork: EnrichmentArtwork[] = [];
 
-  if (!(input.artwork || []).length) {
-    for (const source of (input.sources || []).filter((item) => item.provider === 'soundcloud')) {
-      attempted.push('soundcloud');
+  if (!input.durationMs) {
+    const audio = (input.sources || []).find((source) => source.provider === 'freeteknomusic' && /\.(mp3|flac|ogg|oga|wav|m4a|aac)(?:[?#]|$)/i.test(source.url));
+    if (audio) {
+      attempted.push('freeteknomusic');
       try {
-        const url = await registry.soundcloud.lookupArtwork(source.url);
+        const durationMs = await probeAudioDuration(audio.url);
+        if (durationMs) {
+          patch.durationMs = durationMs;
+          provenance.push({ provider: 'freeteknomusic', field: 'durationMs', confidence: 0.99, sourceUrl: audio.url });
+        }
+      } catch (error) {
+        failures.push({ provider: 'freeteknomusic', error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  }
+
+  if (!(input.artwork || []).length) {
+    for (const source of (input.sources || []).filter((item) => ['soundcloud', 'youtube', 'hearthis'].includes(item.provider))) {
+      attempted.push(source.provider);
+      try {
+        const resolver = source.provider === 'youtube' ? registry.youtube : source.provider === 'hearthis' ? registry.hearthis : registry.soundcloud;
+        const url = await resolver.lookupArtwork(source.url);
         if (url) {
-          artwork.push({ url, provider: 'soundcloud', kind: 'cover' });
-          provenance.push({ provider: 'soundcloud', field: 'artwork', confidence: 0.99, sourceUrl: source.url });
+          artwork.push({ url, provider: source.provider, kind: 'cover' });
+          provenance.push({ provider: source.provider, field: 'artwork', confidence: 0.99, sourceUrl: source.url });
           break;
         }
       } catch (error) {
-        failures.push({ provider: 'soundcloud', error: error instanceof Error ? error.message : String(error) });
+        failures.push({ provider: source.provider, error: error instanceof Error ? error.message : String(error) });
       }
     }
   }
@@ -144,9 +162,17 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
 
   for (const candidate of candidates) {
     if (candidate.confidence < 0.58) continue;
-    const safeSoundCloudMatch = candidate.provider !== 'soundcloud'
-      || (candidate.confidence >= 0.72 && overlapScore(candidate.title, input.title) >= 0.5);
-    if (!safeSoundCloudMatch) continue;
+    const titleOverlap = overlapScore(candidate.title, input.title);
+    const artistOverlap = overlapScore(candidate.artists.join(' '), input.artists.join(' '));
+    const effectiveDurationMs = input.durationMs || patch.durationMs;
+    const durationDelta = effectiveDurationMs && candidate.durationMs
+      ? Math.abs(effectiveDurationMs - candidate.durationMs) / effectiveDurationMs
+      : 0;
+    const curatorUploadWithMatchingDuration = candidate.provider === 'youtube' && titleOverlap >= 0.75
+      && Boolean(effectiveDurationMs && candidate.durationMs && durationDelta <= 0.08);
+    const sameRecording = titleOverlap >= 0.5 && (artistOverlap >= 0.3 || !candidate.artists.length || curatorUploadWithMatchingDuration)
+      && (!effectiveDurationMs || !candidate.durationMs || durationDelta <= 0.15);
+    if (!sameRecording || candidate.confidence < 0.7) continue;
     if (!input.durationMs && candidate.durationMs) fill('durationMs', candidate.durationMs, candidate);
     if (!input.recordedAt && candidate.recordedAt) fill('recordedAt', candidate.recordedAt, candidate);
     if (!input.description && candidate.description) fill('description', candidate.description, candidate);

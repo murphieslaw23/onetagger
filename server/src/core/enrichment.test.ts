@@ -54,7 +54,7 @@ test('enrichMix fills only missing fields and keeps conflicting identity as revi
     durationMs: 0,
     genres: [],
     artwork: [],
-    sources: [{ provider: 'freeteknomusic', url: 'https://freeteknomusic.org/mp3/metek/example.mp3' }],
+    sources: [{ provider: 'freeteknomusic', url: 'https://archive.freeteknomusic.org/metek/' }],
   });
 
   assert.equal(result.patch.durationMs, 5_400_000);
@@ -124,4 +124,21 @@ test('enrichMix fills cover from an indexed SoundCloud source without replacing 
   assert.equal(result.patch.artwork?.[0]?.kind, 'cover');
   assert.equal(result.patch.description, undefined);
   assert.deepEqual(result.attempted, ['soundcloud', 'discogs']);
+});
+
+test('YouTube cover requires a strong title and duration match for a curator upload', async () => {
+  const youtube = {
+    id: 'youtube' as const,
+    async health() { return { id: 'youtube' as const, state: 'ready' as const, detail: 'ok', checkedAt: new Date().toISOString() }; },
+    async search() { return [
+      { provider: 'youtube' as const, title: 'Live Mackitek Koalisson III', artists: ['Archive Curator'], crews: [], durationMs: 2_650_000,
+        artwork: ['https://i.ytimg.com/vi/vi5miMVpmuI/hqdefault.jpg'], source: { provider: 'youtube' as const, url: 'https://www.youtube.com/watch?v=vi5miMVpmuI' }, confidence: 0.8, reasons: [], raw: {} },
+      { provider: 'youtube' as const, title: 'Another Mackitek Koalisson Show', artists: ['Archive Curator'], crews: [], durationMs: 5_000_000,
+        artwork: ['https://i.ytimg.com/vi/unrelated00/hqdefault.jpg'], source: { provider: 'youtube' as const, url: 'https://www.youtube.com/watch?v=unrelated00' }, confidence: 0.79, reasons: [], raw: {} },
+    ]; },
+  };
+  const registry = { discovery: new Map([['youtube', youtube]]), discogs: { async health() { return { state: 'offline', detail: 'unavailable' }; } } } as unknown as ProviderRegistry;
+  const result = await enrichMix(registry, { title: 'Kan10 Live Mackitek Koalisson III', artists: ['Mackitek'], durationMs: 2_641_424, artwork: [], sources: [] });
+  assert.equal(result.patch.artwork?.[0]?.url, 'https://i.ytimg.com/vi/vi5miMVpmuI/hqdefault.jpg');
+  assert.ok(!result.patch.sources?.some((source) => source.url.includes('unrelated00')));
 });

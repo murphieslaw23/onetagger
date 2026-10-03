@@ -1,4 +1,4 @@
-export type ProviderId = 'freeteknomusic' | 'soundcloud' | 'archiveorg' | 'discogs';
+export type ProviderId = 'freeteknomusic' | 'soundcloud' | 'archiveorg' | 'discogs' | 'youtube' | 'hearthis';
 export type MixStatus = 'ready' | 'review' | 'enriching' | 'queued' | 'error';
 
 export interface Artwork {
@@ -62,6 +62,7 @@ export interface MixSet {
   sources: SourceLink[];
   streamUrl?: string;
   fileUrl?: string;
+  waveform?: { imageDataUrl: string; analyzedAt: string; sourceUrl: string };
   externalIds: Record<string, string>;
   entities: EntityRef[];
   candidates: MixCandidate[];

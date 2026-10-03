@@ -3,10 +3,12 @@ import { URL } from 'node:url';
 import { ProviderRegistry } from './core/registry.js';
 import { InMemoryJobQueue } from './jobs/in-memory.js';
 import { enrichMix } from './core/enrichment.js';
+import { WaveformQueue } from './core/waveform.js';
 
 const port = Number(process.env.PORT || 8787);
 const registry = new ProviderRegistry();
 const queue = new InMemoryJobQueue(registry);
+const waveformQueue = new WaveformQueue();
 
 function corsOrigin(req: http.IncomingMessage): string | undefined {
   const configured = (process.env.CORS_ORIGIN || '*')
@@ -44,6 +46,9 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
   try {
+    if (req.method === 'GET' && url.pathname === '/api/live') {
+      return json(req, res, 200, { ok: true, service: 'syco23-mixsets' });
+    }
     if (req.method === 'GET' && url.pathname === '/api/health') {
       return json(req, res, 200, { ok: true, service: 'syco23-mixsets', providers: await registry.health() });
     }
@@ -73,6 +78,17 @@ const server = http.createServer(async (req, res) => {
       if (!input.title || !Array.isArray(input.artists)) return json(req, res, 400, { error: 'title and artists are required' });
       return json(req, res, 200, await enrichMix(registry, input));
     }
+    if (req.method === 'POST' && url.pathname === '/api/waveforms') {
+      const input = await body(req);
+      if (typeof input.sourceUrl !== 'string' || input.sourceUrl.length > 2048) return json(req, res, 400, { error: 'A direct public audio URL is required' });
+      try { return json(req, res, 202, waveformQueue.create(input.sourceUrl)); }
+      catch (error) { return json(req, res, 422, { error: error instanceof Error ? error.message : String(error) }); }
+    }
+    const waveformMatch = url.pathname.match(/^\/api\/waveforms\/([^/]+)$/);
+    if (req.method === 'GET' && waveformMatch) {
+      const job = waveformQueue.get(waveformMatch[1]);
+      return job ? json(req, res, 200, job) : json(req, res, 404, { error: 'waveform job not found' });
+    }
     if (req.method === 'POST' && url.pathname === '/api/soundcloud/artwork') {
       const input = await body(req);
       if (typeof input.url !== 'string' || input.url.length > 2048) return json(req, res, 400, { error: 'A public SoundCloud track URL is required' });
@@ -81,6 +97,31 @@ const server = http.createServer(async (req, res) => {
         return artwork.artworkUrl
           ? json(req, res, 200, artwork)
           : json(req, res, 422, { error: 'That SoundCloud link has no track cover artwork' });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return json(req, res, message.includes('URL is invalid') ? 400 : 502, { error: message });
+      }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/artwork/preview') {
+      const input = await body(req);
+      if (typeof input.url !== 'string' || input.url.length > 2048 || !['soundcloud', 'youtube', 'hearthis'].includes(input.provider)) {
+        return json(req, res, 400, { error: 'Choose SoundCloud, YouTube, or hearthis.at and enter a public track URL' });
+      }
+      try {
+        if (input.provider === 'soundcloud') {
+          const artwork = await registry.soundcloud.resolvePublicArtwork(input.url);
+          return artwork.artworkUrl ? json(req, res, 200, { ...artwork, provider: 'soundcloud' })
+            : json(req, res, 422, { error: 'That SoundCloud link has no track cover artwork' });
+        }
+        if (input.provider === 'youtube') {
+          const video = await registry.youtube.lookupVideo(input.url);
+          return video.artworkUrl ? json(req, res, 200, { provider: 'youtube', sourceUrl: `https://www.youtube.com/watch?v=${video.id}`, title: video.title, artworkUrl: video.artworkUrl })
+            : json(req, res, 422, { error: 'That YouTube video has no public thumbnail' });
+        }
+        const track = await registry.hearthis.lookupTrack(input.url);
+        const artworkUrl = await registry.hearthis.lookupArtwork(input.url);
+        return artworkUrl ? json(req, res, 200, { provider: 'hearthis', sourceUrl: track.permalink_url, title: track.title, artworkUrl })
+          : json(req, res, 422, { error: 'That hearthis.at track has no cover artwork' });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return json(req, res, message.includes('URL is invalid') ? 400 : 502, { error: message });

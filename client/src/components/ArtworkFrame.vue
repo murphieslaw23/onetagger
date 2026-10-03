@@ -37,8 +37,8 @@ const usableSource = computed(() => {
 
 const initials = computed(() => {
   const words = props.alt
-    .replace(/[^p{L}p{N}s]/gu, ' ')
-    .split(/s+/)
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
     .filter(Boolean)
     .slice(0, 3);
   return words.map((word) => word[0]).join('').toUpperCase() || '23';

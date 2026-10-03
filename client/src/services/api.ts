@@ -121,6 +121,24 @@ export function enrichMixMetadata(mix: MixSet) {
   });
 }
 
+export interface ApiWaveformJob {
+  id: string;
+  sourceUrl: string;
+  state: 'queued' | 'running' | 'done' | 'error';
+  progress: number;
+  imageDataUrl?: string;
+  error?: string;
+  analyzedAt?: string;
+}
+
+export function createWaveformJob(sourceUrl: string) {
+  return request<ApiWaveformJob>('/waveforms', { method: 'POST', body: JSON.stringify({ sourceUrl }) });
+}
+
+export function getWaveformJob(id: string) {
+  return request<ApiWaveformJob>(`/waveforms/${encodeURIComponent(id)}`);
+}
+
 export async function previewSoundCloudArtwork(url: string): Promise<{ sourceUrl: string; title?: string; artworkUrl: string }> {
   const response = await fetch(`${API_BASE}/soundcloud/artwork`, {
     method: 'POST',
@@ -132,4 +150,15 @@ export async function previewSoundCloudArtwork(url: string): Promise<{ sourceUrl
     throw new Error(payload.error || `SoundCloud artwork lookup failed (${response.status})`);
   }
   return { sourceUrl: payload.sourceUrl, title: payload.title, artworkUrl: payload.artworkUrl };
+}
+
+export async function previewPublicArtwork(provider: 'soundcloud' | 'youtube' | 'hearthis', url: string): Promise<{ provider: ProviderId; sourceUrl: string; title?: string; artworkUrl: string }> {
+  const response = await fetch(`${API_BASE}/artwork/preview`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider, url }),
+  });
+  const payload = await response.json() as { provider?: ProviderId; sourceUrl?: string; title?: string; artworkUrl?: string; error?: string };
+  if (!response.ok || !payload.sourceUrl || !payload.artworkUrl || !payload.provider) {
+    throw new Error(payload.error || `Artwork lookup failed (${response.status})`);
+  }
+  return { provider: payload.provider, sourceUrl: payload.sourceUrl, title: payload.title, artworkUrl: payload.artworkUrl };
 }

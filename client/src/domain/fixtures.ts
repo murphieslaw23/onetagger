@@ -131,4 +131,6 @@ export const providerHealth: ProviderHealth[] = [
   { id: 'soundcloud', name: 'SoundCloud', mode: 'both', state: 'limited', detail: 'Official API · token required for live queries', auth: 'required', lastCheck: now },
   { id: 'archiveorg', name: 'Internet Archive', mode: 'discover', state: 'ready', detail: 'Advanced Search + Metadata API', auth: 'none', lastCheck: now },
   { id: 'discogs', name: 'Discogs', mode: 'enrich', state: 'limited', detail: 'Artist / label / image enrichment', auth: 'optional', lastCheck: now },
+  { id: 'youtube', name: 'YouTube', mode: 'both', state: 'limited', detail: 'Public video links work; text search needs an API key', auth: 'optional', lastCheck: now },
+  { id: 'hearthis', name: 'hearthis.at', mode: 'both', state: 'ready', detail: 'Public track search and artwork', auth: 'none', lastCheck: now },
 ];

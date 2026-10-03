@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDirectoryListing, parseSize } from './freeteknomusic.js';
+import { FreeteknomusicProvider, parseDirectoryListing, parseSize } from './freeteknomusic.js';
 
 const fixture = `
 <table>
@@ -26,4 +26,16 @@ test('parseDirectoryListing resolves safe same-origin entries', () => {
 test('parseDirectoryListing rejects links to other origins', () => {
   const malicious = '<table><tr><td><a href="https://evil.example/file.mp3">file.mp3</a></td></tr></table>';
   assert.equal(parseDirectoryListing(malicious, 'https://archive.freeteknomusic.org/').length, 0);
+});
+
+test('plain artist query crawls its folder and tolerates literal percent signs in filenames', async (context) => {
+  const listing = '<table><tr><td>[SND]</td><td><a href="Kan10%20Live%20100%25%20Mackitek.mp3">Kan10 Live 100% Mackitek.mp3</a></td><td>75 MB</td></tr></table>';
+  context.mock.method(globalThis, 'fetch', async (_url: string | URL | Request, options?: RequestInit) => options?.method === 'HEAD'
+    ? new Response(null, { status: 200 })
+    : new Response(listing, { status: 200 }));
+  const results = await new FreeteknomusicProvider().search({ q: 'mackitek', maxDepth: 1, maxItems: 20 });
+  assert.equal(results.length, 1);
+  assert.equal(results[0].artists[0], 'Kan10');
+  assert.equal(results[0].title, 'Live 100% Mackitek');
+  assert.equal(results[0].raw.directory, 'https://archive.freeteknomusic.org/mackitek/');
 });

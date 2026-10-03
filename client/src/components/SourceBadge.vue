@@ -16,6 +16,8 @@ const label = computed(() => ({
   soundcloud: 'SoundCloud',
   archiveorg: 'Archive.org',
   discogs: 'Discogs',
+  youtube: 'YouTube',
+  hearthis: 'hearthis.at',
 })[props.provider]);
 
 const icon = computed(() => ({
@@ -23,5 +25,7 @@ const icon = computed(() => ({
   soundcloud: 'mdi-soundcloud',
   archiveorg: 'mdi-archive-outline',
   discogs: 'mdi-album',
+  youtube: 'mdi-youtube',
+  hearthis: 'mdi-headphones',
 })[props.provider]);
 </script>

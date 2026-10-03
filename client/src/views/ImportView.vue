@@ -33,7 +33,9 @@
           rows="4"
           :placeholder="selectedProvider === 'freeteknomusic'
             ? 'https://archive.freeteknomusic.org/metek/\nor: Metek live 1998'
-            : 'Artist + title, crew, event or other identifying terms'"
+            : selectedProvider === 'youtube' || selectedProvider === 'hearthis'
+              ? 'Paste a public video/track URL, or search artist + mix title'
+              : 'Artist + title, crew, event or other identifying terms'"
         ></textarea>
 
         <div class="split-fields" :class="{ 'split-fields--compact': selectedProvider !== 'freeteknomusic' }">
@@ -67,7 +69,7 @@
           </span>
         </label>
 
-        <button class="btn btn--primary btn--wide" :disabled="submitting || !query.trim() || providerBlocked(selectedProvider)" @click="queueDiscovery">
+        <button class="btn btn--primary btn--wide" :disabled="submitting || !query.trim() || providerBlocked(selectedProvider) || youtubeTextSearchBlocked" @click="queueDiscovery">
           <q-icon :name="submitting ? 'mdi-loading mdi-spin' : 'mdi-radar'" />
           {{ submitting ? 'Contacting worker…' : 'Queue discovery job' }}
         </button>
@@ -200,10 +202,14 @@ watch(autoEnrich, (value) => {
 });
 
 const discoveryProviders = computed(() => state.providers.filter((provider) => provider.mode !== 'enrich'));
+const youtubeTextSearchBlocked = computed(() => selectedProvider.value === 'youtube'
+  && !/^https?:\/\//i.test(query.value.trim())
+  && state.providers.find((provider) => provider.id === 'youtube')?.state !== 'ready');
 
 function providerBlocked(id: ProviderId) {
   const provider = state.providers.find((item) => item.id === id);
   if (!provider) return false;
+  if (id === 'youtube') return false;
   if (provider.state === 'offline') return true;
   return id === 'soundcloud' && provider.state !== 'ready';
 }
@@ -233,7 +239,8 @@ function providerQuery() {
     if (/^https?:/i.test(input)) next.url = input;
     else next.q = input;
   } else {
-    next.q = input;
+    if ((selectedProvider.value === 'youtube' || selectedProvider.value === 'hearthis') && /^https?:\/\//i.test(input)) next.url = input;
+    else next.q = input;
   }
   return next;
 }
@@ -335,13 +342,13 @@ async function importCandidate(candidate: ApiMixCandidate) {
 
     const summary = await enrichMixRecord(mix);
     const filled = summary.filledFields.length
-      ? `filled ${summary.filledFields.join(', ')}`
-      : 'no missing fields found';
+      ? `added ${summary.filledFields.join(', ')}`
+      : 'no new fields found';
     const conflicts = summary.reviewCandidatesAdded
       ? ` · ${summary.reviewCandidatesAdded} conflict${summary.reviewCandidatesAdded === 1 ? '' : 's'} sent to Review`
       : '';
     $q.notify({
-      message: `Indexed + enriched “${mix.title}”: ${filled}${conflicts}`,
+      message: `Indexed + enriched “${mix.title}”: ${filled}${conflicts}${summary.failures.length ? ` · ${summary.failures.map((failure) => failure.provider).join(', ')} unavailable` : ''} · ${Math.round(mix.completeness * 100)}% complete`,
       position: 'top-right',
       timeout: 5000,
     });
