@@ -1,5 +1,6 @@
 import type { DiscoveryProvider, MixCandidate, ProviderHealth, SearchQuery } from '../domain.js';
 import { confidenceScore, normalizeQuery, retry, uniqueCandidates, withTimeout } from '../core/utils.js';
+import { probeAudioDuration } from '../core/waveform.js';
 
 const ROOT = 'https://archive.freeteknomusic.org/';
 const ARCHIVE_HOST = 'archive.freeteknomusic.org';
@@ -83,9 +84,12 @@ export function parseDirectoryListing(html: string, baseUrl: string): DirectoryE
 function filenameIdentity(name: string, pathContext: string): { title: string; artist: string[]; recordedAt?: string } {
   const stem = safeDecode(name).replace(AUDIO_EXT, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
   const parts = stem.split(/\s+-\s+/).map((part) => part.trim()).filter(Boolean);
-  const leadingArtist = parts.length === 1 ? stem.match(/^([a-z0-9@._]+(?:\s+vs\.?\s+[a-z0-9@._]+)?)\s+(?=(?:live(?:set|act)?|mix)\b)/i) : null;
+  const leadingArtist = parts.length === 1 ? stem.match(/^([a-z0-9@._]+(?:\s+vs\.?\s+[a-z0-9@._]+)?)\s+(?=(?:live(?:set|act)?|mix)\b)/i)
+    || stem.match(/^([a-z0-9@._]+)\s+(?=[a-z0-9@._]+\s+records?\b)/i) : null;
   const title = parts.length > 1 ? parts.slice(1).join(' — ') : leadingArtist ? stem.slice(leadingArtist[0].length).trim() : stem;
-  const artist = parts.length > 1 ? [parts[0]] : leadingArtist ? [leadingArtist[1]] : [safeDecode(new URL(pathContext).pathname.split('/').filter(Boolean).at(-1) || 'Unknown')];
+  const folder = safeDecode(new URL(pathContext).pathname.split('/').filter(Boolean).at(-1) || 'Unknown');
+  const inferredArtist = leadingArtist?.[1].split(/\s+/).filter((token, index, tokens) => !(index === tokens.length - 1 && tokens.length > 1 && normalizeQuery(token) === normalizeQuery(folder))).join(' ');
+  const artist = parts.length > 1 ? [parts[0]] : inferredArtist ? [inferredArtist] : [folder];
   const date = stem.match(/\b((?:19|20)\d{2})[-._ ]?(0?[1-9]|1[0-2])?[-._ ]?(0?[1-9]|[12]\d|3[01])?\b/);
   return {
     title,
@@ -168,6 +172,25 @@ export class FreeteknomusicProvider implements DiscoveryProvider {
       }
     }
 
-    return uniqueCandidates(output).slice(0, query.limit ?? 150);
+    const ranked = uniqueCandidates(output);
+    if (!query.minDurationMs) return ranked.slice(0, query.limit ?? 150);
+
+    const verified: MixCandidate[] = [];
+    const probeLimit = Math.min(ranked.length, Math.max(20, Math.min(query.limit ?? 150, 100) * 2));
+    for (let index = 0; index < probeLimit && !signal?.aborted; index += 4) {
+      const batch = ranked.slice(index, index + 4);
+      const durations = await Promise.all(batch.map(async (candidate) => {
+        try { return await probeAudioDuration(candidate.source.url, signal); }
+        catch { return undefined; }
+      }));
+      batch.forEach((candidate, offset) => {
+        const durationMs = durations[offset];
+        if (durationMs && durationMs >= query.minDurationMs!) {
+          verified.push({ ...candidate, durationMs, reasons: [...candidate.reasons, 'audio duration verified'] });
+        }
+      });
+      if (verified.length >= (query.limit ?? 150)) break;
+    }
+    return verified.slice(0, query.limit ?? 150);
   }
 }

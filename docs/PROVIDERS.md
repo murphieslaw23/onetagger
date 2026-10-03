@@ -4,7 +4,7 @@
 
 Endpoint: `https://archive.freeteknomusic.org/`
 
-The adapter stays on the archive origin, resolves relative URLs safely, supports bounded recursion (`maxDepth <= 6`), caps total work (`maxItems <= 2500`), ignores obvious system/artwork files and derives initial identity hints from path + filename. A plain artist/directory name first checks the matching archive folder. Discovery never downloads full audio. When an indexed mix has a direct public audio file but no duration, enrichment probes its duration. An explicit waveform action decodes the full recording, with a 250 MiB and five-minute limit.
+The adapter stays on the archive origin, resolves relative URLs safely, supports bounded recursion (`maxDepth <= 6`), caps total work (`maxItems <= 2500`), ignores obvious system/artwork files and derives initial identity hints from path + filename. A plain artist/directory name first checks the matching archive folder. When a minimum duration is requested, discovery probes audio duration and excludes shorter files; it does not download the full recording. An indexed mix with a missing duration is probed during enrichment. An explicit waveform action decodes the full recording, with a 250 MiB and five-minute limit.
 
 ## SoundCloud
 

@@ -25,7 +25,7 @@ function allowedAudioUrl(value: string): URL {
   const trustedHost = host === 'freeteknomusic.org' || host === 'www.freeteknomusic.org'
     || host === 'archive.freeteknomusic.org' || host === 'archive.org' || host.endsWith('.archive.org');
   if (url.protocol !== 'https:' || url.username || url.password || url.port || !trustedHost
-    || !/\.(mp3|flac|ogg|oga|wav|m4a|aac)$/i.test(url.pathname)) {
+    || !/\.(mp3|flac|ogg|oga|wav|m4a|aac|aif|aiff)$/i.test(url.pathname)) {
     throw new Error('Waveform analysis supports direct public audio from Freeteknomusic or Archive.org');
   }
   return url;
@@ -33,11 +33,11 @@ function allowedAudioUrl(value: string): URL {
 
 const execFileAsync = promisify(execFile);
 
-export async function probeAudioDuration(sourceUrl: string): Promise<number | undefined> {
+export async function probeAudioDuration(sourceUrl: string, signal?: AbortSignal): Promise<number | undefined> {
   const url = allowedAudioUrl(sourceUrl);
   const { stdout } = await execFileAsync('ffprobe', [
     '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', url.toString(),
-  ], { timeout: 15_000, maxBuffer: 4096 });
+  ], { timeout: 15_000, maxBuffer: 4096, signal });
   const seconds = Number(stdout.trim());
   return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : undefined;
 }

@@ -112,7 +112,7 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
   const artwork: EnrichmentArtwork[] = [];
 
   if (!input.durationMs) {
-    const audio = (input.sources || []).find((source) => source.provider === 'freeteknomusic' && /\.(mp3|flac|ogg|oga|wav|m4a|aac)(?:[?#]|$)/i.test(source.url));
+    const audio = (input.sources || []).find((source) => source.provider === 'freeteknomusic' && /\.(mp3|flac|ogg|oga|wav|m4a|aac|aif|aiff)(?:[?#]|$)/i.test(source.url));
     if (audio) {
       attempted.push('freeteknomusic');
       try {

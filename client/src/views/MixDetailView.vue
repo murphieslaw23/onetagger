@@ -205,7 +205,7 @@ const pendingCandidates = computed(() => mix.value?.candidates.filter((candidate
 const audioSource = computed(() => {
   const urls = [mix.value?.fileUrl, ...(mix.value?.sources.map((source) => source.url) || [])];
   return urls.find((url) => url && /^https:\/\/(?:[^/]+\.)?(?:freeteknomusic\.org|archive\.org)\//i.test(url)
-    && /\.(?:mp3|flac|ogg|oga|wav|m4a|aac)(?:[?#]|$)/i.test(url));
+    && /\.(?:mp3|flac|ogg|oga|wav|m4a|aac|aif|aiff)(?:[?#]|$)/i.test(url));
 });
 const youtubeSearchUrl = computed(() => `https://www.youtube.com/results?search_query=${encodeURIComponent([mix.value?.artists.join(' '), mix.value?.title].filter(Boolean).join(' '))}`);
 
