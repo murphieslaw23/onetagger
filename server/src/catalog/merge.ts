@@ -4,9 +4,12 @@ import {
   FieldClaimSchema,
   missingFields,
   validateField,
+  type CatalogDetail,
   type CatalogRecord,
   type EnrichmentReport,
+  type EntityRecord,
   type FieldClaim,
+  type ProviderRef,
   type RecordId,
   type ReviewItem
 } from '@syco23/catalog-domain';
@@ -97,6 +100,20 @@ function withSelectedField(record: CatalogRecord, field: string, value: unknown,
     };
   }
   return { ...base, [field]: value } as CatalogRecord;
+}
+
+/**
+ * A citable provider identity for a record, used when a merge has to attribute a
+ * conflict. A record without a provider identity (for example a curator-created
+ * one) is attributed to the archive itself rather than to no one.
+ */
+function duplicateFallbackRef(record: CatalogRecord): ProviderRef {
+  const ref = record.kind === 'mix' ? record.sources[0] : record.kind === 'entity' ? record.providerRefs[0] : undefined;
+  if (ref) {
+    const normalized = normalizeProviderRef(ref);
+    return normalized.url ? normalized : { ...normalized, url: 'https://mixsets.syco23.org/' };
+  }
+  return { provider: 'archiveorg', resourceType: record.kind, externalId: record.id, url: 'https://mixsets.syco23.org/' };
 }
 
 type ClaimOutcome = 'selected' | 'corroborated' | 'pending';
@@ -204,4 +221,162 @@ export function refreshReview(repository: CatalogRepository, id: RecordId): Revi
   const refreshed = repository.getReview(id);
   if (!refreshed) throw new Error(`Review item ${id} could not be reloaded`);
   return refreshed;
+}
+
+/**
+ * Mergeable fields per record kind. Only these are unioned or conflict-checked on a
+ * merge; identities, revisions and evidence bookkeeping are handled separately.
+ */
+const MERGE_FIELDS = {
+  mix: ['genres', 'styles', 'playbackUrls', 'assets', 'sources', 'eventIds'],
+  entity: ['aliases', 'roles', 'assets', 'providerRefs'],
+  event: ['sourceUrls', 'mixIds', 'assets']
+} as const satisfies Record<CatalogRecord['kind'], readonly string[]>;
+
+/**
+ * Fields that carry a single chosen value. When the survivor and the duplicate both
+ * have one and they disagree, the merge must not silently pick a winner: the
+ * duplicate's value becomes a Review item against the survivor.
+ */
+const SINGLE_VALUE_FIELDS = {
+  mix: ['title', 'description', 'durationMs', 'recordingDate'],
+  entity: ['displayName', 'profile', 'country'],
+  event: ['name', 'startDate', 'endDate', 'venue', 'locality', 'country']
+} as const satisfies Record<CatalogRecord['kind'], readonly string[]>;
+
+function unionByJson(left: unknown[], right: unknown[]): unknown[] {
+  const seen = new Set<string>();
+  const merged: unknown[] = [];
+  for (const value of [...left, ...right]) {
+    const key = comparisonValue(value);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(value);
+  }
+  return merged;
+}
+
+function conflictClaim(
+  survivor: CatalogRecord,
+  field: string,
+  value: unknown,
+  ref: ProviderRef,
+  sourceUrl: string,
+  explanation: string,
+  observedAt: string
+): FieldClaim {
+  return {
+    targetRecordId: survivor.id,
+    field,
+    value,
+    provider: ref,
+    sourceUrl,
+    observedAt,
+    evidence: 'curated',
+    matchExplanation: explanation
+  };
+}
+
+/**
+ * Curator-confirmed duplicate merge.
+ *
+ * The survivor keeps its own selected evidence and receives the duplicate's source
+ * identities, relationships, aliases and missing fields. Where both records hold a
+ * different value for the same single-valued field the merge stops selecting and
+ * instead raises a Review item holding the duplicate's value, so a disagreement
+ * survives the merge instead of being resolved by write order.
+ *
+ * Old IDs redirect to the survivor through the legacy alias table, so detail links
+ * that were already shared keep resolving. Both revisions are checked so a second
+ * curator session cannot merge over newer curation.
+ */
+export function mergeRecords(
+  repository: CatalogRepository,
+  survivorId: RecordId,
+  duplicateId: RecordId,
+  expectedRevisions: readonly [number, number],
+  actor: string
+): CatalogDetail {
+  if (survivorId === duplicateId) throw new Error('Cannot merge a record with itself');
+  repository.transaction((tx) => {
+    const survivor = tx.getRecord(survivorId);
+    const duplicate = tx.getRecord(duplicateId);
+    if (!survivor) throw new Error(`Survivor record ${survivorId} does not exist`);
+    if (!duplicate) throw new Error(`Duplicate record ${duplicateId} does not exist`);
+    if (survivor.kind !== duplicate.kind) throw new Error('Cannot merge records of different kinds');
+    if (survivor.revision !== expectedRevisions[0] || duplicate.revision !== expectedRevisions[1]) {
+      throw new Error(`Revision conflict for ${survivorId}`);
+    }
+
+    const observedAt = new Date().toISOString();
+    let merged = survivor;
+    const reviewFields: Array<{ field: string; value: unknown; ref: ProviderRef }> = [];
+
+    for (const field of MERGE_FIELDS[survivor.kind] as readonly string[]) {
+      const own = (survivor as unknown as Record<string, unknown>)[field];
+      const theirs = (duplicate as unknown as Record<string, unknown>)[field];
+      if (!Array.isArray(own) || !Array.isArray(theirs) || !theirs.length) continue;
+      merged = { ...merged, [field]: unionByJson(own as unknown[], theirs as unknown[]) } as CatalogRecord;
+    }
+
+    for (const field of SINGLE_VALUE_FIELDS[survivor.kind] as readonly string[]) {
+      const theirs = (duplicate as unknown as Record<string, unknown>)[field];
+      if (theirs === undefined || theirs === null) continue;
+      const own = (survivor as unknown as Record<string, unknown>)[field];
+      if (own === undefined || own === null) {
+        merged = { ...merged, [field]: theirs } as CatalogRecord;
+        continue;
+      }
+      if (comparisonValue(own) === comparisonValue(theirs)) continue;
+      // Keep the survivor's value selected and carry the disagreement into Review.
+      reviewFields.push({ field, value: theirs, ref: duplicateFallbackRef(duplicate) });
+    }
+
+    const roleUnion = survivor.kind === 'entity' && duplicate.kind === 'entity'
+      ? unionByJson(survivor.roles, duplicate.roles)
+      : undefined;
+
+    const updated: CatalogRecord = {
+      ...merged,
+      ...(roleUnion ? { roles: roleUnion as EntityRecord['roles'] } : {}),
+      revision: survivor.revision + 1,
+      updatedAt: observedAt,
+      // A curator merge is an explicit confirmation of the surviving identity.
+      verification: survivor.verification === 'proposed' ? 'curator-confirmed' : survivor.verification
+    } as CatalogRecord;
+    tx.saveRecord(updated, survivor.revision);
+
+    const duplicateRef = duplicateFallbackRef(duplicate);
+    for (const ref of duplicate.kind === 'mix' ? duplicate.sources : duplicate.kind === 'entity' ? duplicate.providerRefs : []) {
+      if (tx.findByProvider(ref) === survivorId) continue;
+      tx.addProviderSource(survivorId, ref);
+    }
+
+    for (const item of reviewFields) {
+      const claim = conflictClaim(
+        updated,
+        item.field,
+        item.value,
+        item.ref,
+        item.ref.url ?? 'https://mixsets.syco23.org/',
+        `Merged duplicate ${duplicateId} held a different ${item.field}; the survivor's selected value is unchanged`,
+        observedAt
+      );
+      const fingerprint = claimFingerprint(claim);
+      if (tx.getClaim(fingerprint)) continue;
+      validateField(updated, item.field, item.value);
+      tx.addClaim(fingerprint as RecordId, fingerprint, claim, 'pending', updated.revision, valueFor(survivor, item.field));
+    }
+
+    void duplicateRef;
+    // The duplicate is retired inside the same transaction: its claims, review
+    // decisions and media move to the survivor, and its old id becomes an alias so a
+    // detail link that was already shared keeps resolving.
+    tx.retireRecord(duplicateId, survivorId);
+  });
+
+  const survivor = repository.getRecord(survivorId);
+  if (!survivor) throw new Error(`Survivor record ${survivorId} could not be reloaded`);
+  void actor;
+  return survivor;
 }

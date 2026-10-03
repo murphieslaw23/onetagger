@@ -123,5 +123,17 @@ export const catalogApi = {
 
   async refreshReview(id: RecordId): Promise<ReviewItem> {
     return ReviewItemSchema.parse(await request(`/catalog/review/${encodeURIComponent(id)}/refresh`, { method: 'POST', body: '{}' }));
+  },
+
+  /**
+   * Curator-confirmed duplicate merge. Both revisions are sent so a concurrent
+   * curation session cannot be merged over, and the retired id resolves to the
+   * survivor afterwards.
+   */
+  async mergeRecords(survivor: RecordId, duplicate: RecordId, expectedRevisions: [number, number]): Promise<CatalogRecord> {
+    return CatalogRecordSchema.parse(await request('/catalog/merge', {
+      method: 'POST',
+      body: JSON.stringify({ survivor, duplicate, expectedRevisions })
+    }));
   }
 };

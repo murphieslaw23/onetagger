@@ -239,6 +239,52 @@ test('curator waveform upload persists PNG bytes and public media GET serves the
   }
 });
 
+test('curator duplicate merge is authenticated, revision-checked and redirects the old id', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'syco23-catalog-merge-'));
+  const repo = openCatalog(join(directory, 'catalog.sqlite'));
+  const previousOrigin = process.env.CORS_ORIGIN;
+  process.env.CORS_ORIGIN = 'http://localhost:5173';
+  const duplicate = { ...mix(), id: 'mix_01J9CATALOGUE00000000000021', title: 'Duplicate import' };
+  try {
+    repo.transaction((tx) => { tx.saveRecord(mix()); tx.saveRecord(duplicate); });
+    const auth = createCuratorAuth(repo, hashCuratorPassword('private-local-password'));
+    const context = { repository: repo, auth };
+
+    // Public readers must not be able to collapse two records.
+    const denied = response();
+    await handleCatalogRoute(context, request('POST', '/api/catalog/merge', {
+      survivor: mix().id, duplicate: duplicate.id, expectedRevisions: [1, 1]
+    }, { origin: 'http://localhost:5173' }), denied.res);
+    assert.equal(denied.result.status, 401);
+
+    const cookie = auth.login('private-local-password', '127.0.0.1').split(';')[0];
+    const merged = response();
+    await handleCatalogRoute(context, request('POST', '/api/catalog/merge', {
+      survivor: mix().id, duplicate: duplicate.id, expectedRevisions: [1, 1]
+    }, { cookie, origin: 'http://localhost:5173' }), merged.res);
+    assert.equal(merged.result.status, 200);
+    assert.equal(JSON.parse(merged.result.body ?? '{}').id, mix().id);
+
+    // The retired id must still resolve, so an already shared link keeps working.
+    const legacy = response();
+    await handleCatalogRoute(context, request('GET', `/api/catalog/records/${duplicate.id}`), legacy.res);
+    assert.equal(legacy.result.status, 200);
+    assert.equal(JSON.parse(legacy.result.body ?? '{}').id, mix().id);
+
+    // Replaying the same merge with the revisions it was given is refused.
+    const replay = response();
+    await handleCatalogRoute(context, request('POST', '/api/catalog/merge', {
+      survivor: mix().id, duplicate: duplicate.id, expectedRevisions: [1, 1]
+    }, { cookie, origin: 'http://localhost:5173' }), replay.res);
+    assert.ok(replay.result.status === 404 || replay.result.status === 409, `expected 404 or 409, got ${replay.result.status}`);
+  } finally {
+    if (previousOrigin === undefined) delete process.env.CORS_ORIGIN;
+    else process.env.CORS_ORIGIN = previousOrigin;
+    repo.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('catalog domain failures keep their HTTP status and never leak internal detail', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'syco23-catalog-errors-'));
   const repo = openCatalog(join(directory, 'catalog.sqlite'));

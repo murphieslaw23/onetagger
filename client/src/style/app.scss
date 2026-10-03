@@ -971,3 +971,20 @@ select, textarea, input[type="number"] {
   .catalog-error { align-items: flex-start; }
   .catalog-error .btn { margin-left: 0; }
 }
+
+.catalog-editor__note { color: var(--muted); font-size: 0.86rem; margin: 0 0 12px; }
+.duplicate-candidates { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 8px; }
+.duplicate-candidates li {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+  border: 1px solid var(--line); padding: 8px 12px;
+}
+.duplicate-merge { border-top: 1px solid var(--line); display: grid; gap: 14px; margin-top: 16px; padding-top: 16px; }
+@media (max-width: 600px) {
+  .duplicate-candidates li { flex-direction: column; align-items: flex-start; }
+  .duplicate-candidates li .btn { width: 100%; }
+  .diff-table, .diff-table tbody, .diff-table tr, .diff-table th, .diff-table td { display: block; width: 100%; }
+  .diff-table thead { display: none; }
+  .diff-table tr { border-bottom: 1px solid var(--line); padding: 8px 0; }
+  .diff-table th, .diff-table td { border: 0; padding: 2px 0; }
+  .diff-table th::after { content: ':'; }
+}

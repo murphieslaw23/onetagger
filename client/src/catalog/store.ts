@@ -167,6 +167,26 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     return item;
   }
 
+  /**
+   * Merge a confirmed duplicate into its survivor. The retired record leaves the
+   * index: a failed merge must not look like it succeeded, so the local list is only
+   * updated from the record the server actually committed.
+   */
+  async function mergeRecords(survivorId: RecordId, duplicateId: RecordId, expectedRevisions: [number, number]) {
+    state.error = undefined;
+    try {
+      const merged = remember(await gateway.mergeRecords(survivorId, duplicateId, expectedRevisions));
+      state.records = state.records.filter((record) => record.id !== duplicateId);
+      state.total = Math.max(0, state.total - 1);
+      // The merge can raise new review items for fields the two records disagreed on.
+      await loadReview().catch(() => undefined);
+      return merged;
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : 'Records were not merged';
+      throw error;
+    }
+  }
+
   async function migrateLocalLibrary(): Promise<MigrationResult | undefined> {
     if (typeof window === 'undefined') return undefined;
     const raw = window.localStorage.getItem('syco23.mixsets.library');
@@ -213,6 +233,7 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     updateRecord,
     decideReview,
     refreshReview,
+    mergeRecords,
     migrateLocalLibrary
   };
 }

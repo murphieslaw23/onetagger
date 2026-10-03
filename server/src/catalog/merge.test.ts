@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import type { FieldClaim, MixRecord } from '@syco23/catalog-domain';
+import type { FieldClaim, MixRecord, RecordId } from '@syco23/catalog-domain';
 import { openCatalog } from './repository.js';
-import { applyClaims, decideReview, refreshReview } from './merge.js';
+import { applyClaims, decideReview, mergeRecords, refreshReview } from './merge.js';
 
 const timestamp = '2026-10-03T12:00:00.000Z';
 
@@ -113,5 +113,74 @@ test('direct claims from an unlinked provider stay in review and equal values co
     const corroboration = applyClaims(repo, [equivalent]);
     assert.equal(corroboration.corroborated, 1);
     assert.equal(corroboration.reviewed, 0);
+  });
+});
+
+function duplicateMix(overrides: Partial<MixRecord> = {}): MixRecord {
+  return mix({
+    id: 'mix_01J9CATALOGUE00000000000099',
+    title: 'Different provider title',
+    genres: ['techno'],
+    styles: ['hard groove'],
+    ...overrides
+  });
+}
+
+function withTwoRecords(run: (repo: ReturnType<typeof openCatalog>) => void) {
+  const directory = mkdtempSync(join(tmpdir(), 'syco23-merge-dup-'));
+  const repo = openCatalog(join(directory, 'catalog.sqlite'));
+  try {
+    repo.transaction((tx) => {
+      tx.saveRecord(mix());
+      tx.addProviderSource(mix().id, { provider: 'youtube', resourceType: 'video', externalId: 'video-1', url: 'https://www.youtube.com/watch?v=video-1' });
+      tx.saveRecord(duplicateMix());
+      tx.addProviderSource(duplicateMix().id, { provider: 'hearthis', resourceType: 'track', externalId: 'track-9', url: 'https://hearthis.at/track-9/' });
+    });
+    run(repo);
+  } finally {
+    repo.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+test('a curator merge keeps evidence, unions missing fields and leaves disagreements in review', () => {
+  withTwoRecords((repo) => {
+    const survivor = repo.getRecord(mix().id)!;
+    const duplicate = repo.getRecord(duplicateMix().id)!;
+    const merged = mergeRecords(repo, survivor.id as RecordId, duplicate.id as RecordId, [survivor.revision, duplicate.revision], 'curator-session-1');
+
+    // Source identities from both records follow the survivor.
+    assert.equal(repo.findByProvider({ provider: 'hearthis', resourceType: 'track', externalId: 'track-9' }), survivor.id);
+    assert.equal(repo.findByProvider({ provider: 'youtube', resourceType: 'video', externalId: 'video-1' }), survivor.id);
+
+    // Values the survivor lacks are filled from the duplicate.
+    assert.deepEqual(merged.kind === 'mix' ? merged.styles : undefined, ['hard groove']);
+    assert.equal(merged.kind === 'mix' ? merged.revision : 0, survivor.revision + 1);
+
+    // A disagreement must not be resolved by write order: the survivor's selected
+    // title stays, and the duplicate's value becomes a review item.
+    assert.equal(merged.kind === 'mix' ? merged.title : undefined, 'Original title');
+    const pending = repo.listReview().filter((item) => item.targetRecordId === survivor.id);
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0].field, 'title');
+    assert.equal(pending[0].state, 'pending');
+  });
+});
+
+test('a merged duplicate keeps its old id resolving to the survivor and cannot be merged over newer curation', () => {
+  withTwoRecords((repo) => {
+    const survivor = repo.getRecord(mix().id)!;
+    const duplicate = repo.getRecord(duplicateMix().id)!;
+    mergeRecords(repo, survivor.id as RecordId, duplicate.id as RecordId, [survivor.revision, duplicate.revision], 'curator-session-1');
+
+    // A detail link that was already shared for the duplicate must still resolve.
+    assert.equal(repo.getRecord(duplicate.id as RecordId)?.id, survivor.id);
+
+    // A stale second curator session must be refused rather than overwriting newer
+    // curation with the revisions it happened to load.
+    assert.throws(
+      () => mergeRecords(repo, survivor.id as RecordId, duplicate.id as RecordId, [survivor.revision, duplicate.revision], 'curator-session-2'),
+      /revision conflict/i
+    );
   });
 });

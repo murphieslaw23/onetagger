@@ -77,4 +77,31 @@ describe('catalog store', () => {
     expect(gateway.persistWaveform).toHaveBeenLastCalledWith('mix_01J9CATALOGUE00000000000082', 'data:image/png;base64,iVBORw0KGgo=', 'https://archive.org/audio.mp3');
     expect(values.get('syco23.mixsets.library')).toBe(stored);
   });
+
+  it('drops the duplicate from the local index only after the server committed the merge', async () => {
+    const duplicate = { ...mix, id: 'mix_01J9CATALOGUE00000000000083', title: 'Duplicate import' };
+    const merged = { ...mix, revision: 2 };
+    const failing = {
+      getIndex: vi.fn().mockResolvedValue({ items: [mix, duplicate], page: 1, pageSize: 25, total: 2 }),
+      mergeRecords: vi.fn().mockRejectedValue(new Error('Revision conflict for mix_01J9CATALOGUE00000000000080'))
+    } as unknown as CatalogGateway;
+    const refused = createCatalogStore(failing);
+    await refused.loadIndex('mix');
+    await expect(refused.mergeRecords(mix.id, duplicate.id, [1, 1])).rejects.toThrow('Revision conflict');
+    // A refused merge must leave the archive looking untouched.
+    expect(refused.state.records.map((record) => record.id)).toEqual([mix.id, duplicate.id]);
+    expect(refused.state.total).toBe(2);
+
+    const gateway = {
+      getIndex: vi.fn().mockResolvedValue({ items: [mix, duplicate], page: 1, pageSize: 25, total: 2 }),
+      mergeRecords: vi.fn().mockResolvedValue(merged),
+      getReview: vi.fn().mockResolvedValue([])
+    } as unknown as CatalogGateway;
+    const store = createCatalogStore(gateway);
+    await store.loadIndex('mix');
+    const result = await store.mergeRecords(mix.id, duplicate.id, [1, 1]);
+    expect(result.revision).toBe(2);
+    expect(store.state.records.map((record) => record.id)).toEqual([mix.id]);
+    expect(store.state.total).toBe(1);
+  });
 });

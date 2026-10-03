@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { missingFields, type CatalogRecord, type EntityRecord, type EventRecord, type RecordId } from '@syco23/catalog-domain';
+import { missingFields, normalizeName, type CatalogRecord, type EntityRecord, type EventRecord, type RecordId } from '@syco23/catalog-domain';
 import { useCatalogStore } from '../catalog/store';
 import ArtworkFrame from '../components/ArtworkFrame.vue';
 import WaveformStrip from '../components/WaveformStrip.vue';
+import DuplicateMerge from '../components/DuplicateMerge.vue';
 import { createWaveformJob, getWaveformJob } from '../services/api';
 
 const route = useRoute();
@@ -18,6 +19,35 @@ const enriching = shallowRef(false);
 const analyzing = shallowRef(false);
 const analysisProgress = shallowRef(0);
 const error = shallowRef('');
+const possibleDuplicate = shallowRef<CatalogRecord>();
+
+/**
+ * Candidate duplicates for this record.
+ *
+ * A shared normalized name is only a *suggestion*: same-name artists and events at
+ * different dates or venues are distinct records, and name similarity is never proof
+ * of a duplicate. The curator still confirms which side survives.
+ */
+const duplicateCandidates = computed((): CatalogRecord[] => {
+  const current = record.value;
+  if (!current) return [];
+  const ownName = normalizeName(current.kind === 'mix' ? current.title : current.kind === 'entity' ? current.displayName : current.name);
+  const indexKind = current.kind === 'event' ? 'event' : 'mix';
+  const candidates = catalog.state.records as readonly CatalogRecord[];
+  return candidates.filter((candidate) => {
+    if (candidate.id === current.id || candidate.kind !== current.kind) return false;
+    const name = normalizeName(candidate.kind === 'mix' ? candidate.title : candidate.kind === 'entity' ? candidate.displayName : candidate.name);
+    if (name !== ownName) return false;
+    if (current.kind === 'event' && candidate.kind === 'event') {
+      // Same name is not the same event: a differing date or venue keeps them apart.
+      const currentDate = current.startDate?.value ?? '';
+      const candidateDate = candidate.startDate?.value ?? '';
+      return currentDate !== '' && candidateDate !== '' && currentDate === candidateDate
+        && (current.venue ?? '') === (candidate.venue ?? '');
+    }
+    return true;
+  }).filter((candidate) => candidate.kind === indexKind || indexKind === 'mix');
+});
 
 const recordId = computed(() => String(route.params.id || ''));
 const title = computed(() => !record.value ? '' : record.value.kind === 'mix'
@@ -77,6 +107,19 @@ async function saveName() {
     error.value = caught instanceof Error ? caught.message : 'Changes were not saved';
   } finally {
     saving.value = false;
+  }
+}
+
+/**
+ * After a merge the survivor holds a new revision, so the record is reloaded rather
+ * than patched locally: the server is the only authority on what was committed.
+ */
+async function onMerged(merged: CatalogRecord) {
+  possibleDuplicate.value = undefined;
+  try {
+    await loadRecord(merged.id as string);
+  } catch {
+    record.value = merged;
   }
 }
 
@@ -181,6 +224,28 @@ async function runWaveformAnalysis() {
         <input :id="`record-name-${record.id}`" v-model="draftName" maxlength="500" required />
         <button class="btn btn--primary" type="submit" :disabled="saving || draftName.trim() === title"><q-icon name="mdi-content-save-outline" /> {{ saving ? 'Saving…' : 'Save change' }}</button>
       </form>
+    </div>
+
+    <div v-if="catalog.state.authenticated && duplicateCandidates.length" class="panel catalog-editor">
+      <div class="panel-head"><span>DUPLICATE CANDIDATES</span><b>{{ duplicateCandidates.length }} SHARED NAME</b></div>
+      <p class="catalog-editor__note">
+        A matching name alone does not make these the same recording. Compare the fields below before merging.
+      </p>
+      <ul class="duplicate-candidates">
+        <li v-for="candidate in duplicateCandidates" :key="candidate.id">
+          <router-link :to="`/${candidate.kind === 'mix' ? 'mix' : candidate.kind === 'entity' ? 'entity' : 'event'}/${encodeURIComponent(candidate.id)}`">
+            {{ candidate.kind === 'mix' ? candidate.title : candidate.kind === 'entity' ? candidate.displayName : candidate.name }}
+            · rev {{ candidate.revision }}
+          </router-link>
+          <button class="btn" type="button" @click="possibleDuplicate = candidate">Compare &amp; merge…</button>
+        </li>
+      </ul>
+      <DuplicateMerge
+        v-if="possibleDuplicate"
+        :survivor="record"
+        :duplicate="possibleDuplicate"
+        @merged="onMerged"
+      />
     </div>
 
     <div class="catalog-detail__grid">

@@ -34,6 +34,8 @@ export interface CatalogTransaction {
   decideReview(id: RecordId, state: 'accepted' | 'rejected', actor: string): void;
   addRelationship(sourceId: RecordId, targetId: RecordId, relationship: EntityRole | 'event' | 'member' | 'parent-label' | 'sub-label'): void;
   addLegacyAlias(legacyId: string, recordId: RecordId): void;
+  repointAlias(legacyId: string, recordId: RecordId): void;
+  retireRecord(duplicateId: RecordId, survivorId: RecordId): void;
   addMediaAsset(asset: StoredMediaAsset): void;
 }
 
@@ -242,6 +244,51 @@ function createTransaction(database: DatabaseSync): CatalogTransaction {
       if (!legacyId || legacyId.length > 200) throw new Error('Legacy ID is invalid');
       if (!recordById(database, recordId)) throw new Error(`Unknown record ${recordId}`);
       database.prepare('INSERT INTO record_aliases(legacy_id, record_id, created_at) VALUES (?, ?, ?)').run(legacyId, recordId, new Date().toISOString());
+    },
+
+    repointAlias(legacyId, recordId) {
+      // Existing links that pointed at a merged duplicate must now resolve to the
+      // survivor, otherwise a previously shared detail link would 404 after a merge.
+      if (!legacyId || legacyId.length > 200) throw new Error('Legacy ID is invalid');
+      if (!recordById(database, recordId)) throw new Error(`Unknown record ${recordId}`);
+      database.prepare(`UPDATE record_aliases SET record_id = ?, created_at = ?
+        WHERE legacy_id = ? AND record_id <> ?`).run(recordId, new Date().toISOString(), legacyId, recordId);
+    },
+
+    retireRecord(duplicateId, survivorId) {
+      if (duplicateId === survivorId) throw new Error('Cannot merge a record with itself');
+      if (!recordById(database, duplicateId)) throw new Error(`Unknown record ${duplicateId}`);
+      if (!recordById(database, survivorId)) throw new Error(`Unknown record ${survivorId}`);
+
+      // The old id must resolve to the survivor before the row disappears, because
+      // recordById only consults the alias table when no live record carries the id.
+      database.prepare(`INSERT INTO record_aliases(legacy_id, record_id, created_at) VALUES (?, ?, ?)
+        ON CONFLICT(legacy_id) DO UPDATE SET record_id = excluded.record_id`)
+        .run(duplicateId, survivorId, new Date().toISOString());
+
+      // Nothing selected is discarded: claims, their review decisions and media all
+      // follow the survivor so the provenance of the duplicate stays auditable.
+      // The stored claim still points at the retired id, so its embedded target must be
+      // rewritten too or a later review decision would resolve to a record that is gone.
+      database.prepare(`UPDATE field_claims SET record_id = ?, claim_json = json_set(claim_json, '$.targetRecordId', ?) WHERE record_id = ?`)
+        .run(survivorId, survivorId, duplicateId);
+      database.prepare('UPDATE review_items SET record_id = ? WHERE record_id = ?').run(survivorId, duplicateId);
+      database.prepare('UPDATE media_assets SET record_id = ? WHERE record_id = ?').run(survivorId, duplicateId);
+      database.prepare('UPDATE record_relationships SET target_id = ? WHERE target_id = ? AND source_id <> ?')
+        .run(survivorId, duplicateId, survivorId);
+      database.prepare('UPDATE record_relationships SET source_id = ? WHERE source_id = ? AND target_id <> ?')
+        .run(survivorId, duplicateId, survivorId);
+
+      // Provider identities move to the survivor, keeping the uniqueness constraint on
+      // (provider, resource_type, external_id) intact. A clash means the two records
+      // already claimed the same identity, which is exactly the merge the curator did.
+      database.prepare(`UPDATE OR IGNORE provider_sources SET record_id = ?, added_at = ?
+        WHERE record_id = ?`).run(survivorId, new Date().toISOString(), duplicateId);
+      database.prepare(`DELETE FROM provider_sources WHERE record_id = ?`).run(duplicateId);
+
+      database.prepare('DELETE FROM entity_roles WHERE record_id = ?').run(duplicateId);
+      database.prepare('DELETE FROM entity_names WHERE record_id = ?').run(duplicateId);
+      database.prepare('DELETE FROM catalog_records WHERE id = ?').run(duplicateId);
     },
 
     addMediaAsset(asset) {

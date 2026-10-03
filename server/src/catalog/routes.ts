@@ -8,7 +8,7 @@ import {
   type RecordId
 } from '@syco23/catalog-domain';
 import type { CuratorAuth } from '../auth/curator.js';
-import { decideReview, refreshReview } from './merge.js';
+import { decideReview, mergeRecords, refreshReview } from './merge.js';
 import type { CatalogRepository } from './repository.js';
 import { applyCorsHeaders, HttpInputError, isAllowedOrigin, readJsonBody, sendJson } from '../http.js';
 import type { ProviderRegistry } from '../core/registry.js';
@@ -90,6 +90,9 @@ const SAFE_MESSAGES = [
   'Relationship references an unknown record',
   'Relationship target does not have the',
   'Review item',
+  'Survivor record',
+  'Duplicate record',
+  'Cannot merge',
   'Target record',
   'Unknown record',
   'Waveform image must be a valid PNG with an IHDR header',
@@ -286,6 +289,34 @@ export async function handleCatalogRoute(context: CatalogRouteContext, request: 
       const actor = context.auth.authenticate(request)!;
       const item = decideReview(context.repository, recordId(decisionMatch[1]), input.decision as 'accept' | 'reject', input.expectedRevision as number, actor.sessionId);
       sendJson(response, 200, item);
+    } catch (error) {
+      const parsed = parsedError(error);
+      sendJson(response, parsed.status, parsed.body);
+    }
+    return true;
+  }
+
+  if (request.method === 'POST' && path === '/api/catalog/merge') {
+    if (!requireCurator(context, request, response)) return true;
+    try {
+      const input = await readJsonBody(request) as {
+        survivor?: unknown; duplicate?: unknown; expectedRevisions?: unknown;
+      };
+      if (typeof input.survivor !== 'string' || typeof input.duplicate !== 'string'
+        || !Array.isArray(input.expectedRevisions) || input.expectedRevisions.length !== 2
+        || !input.expectedRevisions.every((revision) => Number.isInteger(revision))) {
+        sendJson(response, 400, { error: 'survivor, duplicate and two expectedRevisions are required' });
+        return true;
+      }
+      const actor = context.auth.authenticate(request)!;
+      const merged = mergeRecords(
+        context.repository,
+        recordId(input.survivor),
+        recordId(input.duplicate),
+        input.expectedRevisions as [number, number],
+        actor.sessionId
+      );
+      sendJson(response, 200, merged);
     } catch (error) {
       const parsed = parsedError(error);
       sendJson(response, parsed.status, parsed.body);
