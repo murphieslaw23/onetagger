@@ -34,7 +34,7 @@
             <q-icon :name="enriching ? 'mdi-loading mdi-spin' : 'mdi-database-sync-outline'" />
             {{ enriching ? 'Enriching…' : 'Enrich missing metadata' }}
           </button>
-          <button v-if="!mix.artwork.length" class="btn" type="button" :aria-expanded="showSoundCloudLink" aria-controls="soundcloud-cover-link" @click="showSoundCloudLink = !showSoundCloudLink">
+          <button v-if="!mix.artwork.length" class="btn" type="button" :aria-expanded="showSoundCloudLink" aria-controls="soundcloud-cover-link" @click="toggleSoundCloudLink">
             <q-icon name="mdi-image-plus-outline" /> Add cover from SoundCloud link
           </button>
           <router-link v-if="pendingCandidates.length" to="/review" class="btn">
@@ -185,6 +185,7 @@ const showSoundCloudLink = ref(false);
 const soundCloudUrl = ref('');
 const coverError = ref('');
 const coverPreview = ref<Awaited<ReturnType<typeof previewSoundCloudArtwork>> | null>(null);
+const coverPreviewMixId = ref<string | null>(null);
 const mix = computed(() => findMix(String(route.params.id)));
 const pendingCandidates = computed(() => mix.value?.candidates.filter((candidate) => candidate.state === 'pending') ?? []);
 
@@ -242,24 +243,38 @@ function markCurrentReviewed() {
 
 function clearCoverPreview() {
   coverPreview.value = null;
+  coverPreviewMixId.value = null;
   coverError.value = '';
+}
+
+function toggleSoundCloudLink() {
+  showSoundCloudLink.value = !showSoundCloudLink.value;
+  clearCoverPreview();
 }
 
 async function previewCover() {
   if (!mix.value || previewing.value) return;
+  const requestedUrl = soundCloudUrl.value;
+  const requestedMixId = mix.value.id;
   previewing.value = true;
   clearCoverPreview();
   try {
-    coverPreview.value = await previewSoundCloudArtwork(soundCloudUrl.value);
+    const result = await previewSoundCloudArtwork(requestedUrl);
+    if (soundCloudUrl.value === requestedUrl && mix.value?.id === requestedMixId && showSoundCloudLink.value) {
+      coverPreview.value = result;
+      coverPreviewMixId.value = requestedMixId;
+    }
   } catch (error) {
-    coverError.value = error instanceof Error ? error.message : 'SoundCloud cover lookup failed';
+    if (soundCloudUrl.value === requestedUrl && mix.value?.id === requestedMixId && showSoundCloudLink.value) {
+      coverError.value = error instanceof Error ? error.message : 'SoundCloud cover lookup failed';
+    }
   } finally {
     previewing.value = false;
   }
 }
 
 function confirmCover() {
-  if (!mix.value || !coverPreview.value) return;
+  if (!mix.value || !coverPreview.value || coverPreviewMixId.value !== mix.value.id) return;
   try {
     useSoundCloudCover(mix.value, coverPreview.value.sourceUrl, coverPreview.value.artworkUrl);
     coverPreview.value = null;
