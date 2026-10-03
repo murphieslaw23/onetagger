@@ -135,7 +135,15 @@ export function useMixStore() {
   function applyCandidate(mix: MixSet, candidate: MixCandidate) {
     const patch = candidate.fields;
     for (const [key, value] of Object.entries(patch)) {
-      if (value !== undefined && key !== 'id' && key !== 'candidates') {
+      if (key === 'externalIds' && value && typeof value === 'object') {
+        Object.assign(mix.externalIds, value);
+      } else if (key === 'entities' && Array.isArray(value)) {
+        for (const entity of value as EntityRef[]) {
+          const index = mix.entities.findIndex((current) => current.kind === entity.kind && normalized(current.name) === normalized(entity.name));
+          if (index >= 0) mix.entities[index] = entity;
+          else mix.entities.push(entity);
+        }
+      } else if (value !== undefined && key !== 'id' && key !== 'candidates') {
         (mix as unknown as Record<string, unknown>)[key] = value;
       }
     }
@@ -265,7 +273,7 @@ export function useMixStore() {
         if (mix.externalIds[key] && mix.externalIds[key] !== id) {
           const provider: ProviderId = key === 'soundcloud' ? 'soundcloud' : key === 'archiveorg' ? 'archiveorg' : 'discogs';
           queueClaim(`enrich-${provider}-id-${safeId(key)}`, {
-            externalIds: { ...mix.externalIds, [key]: id },
+            externalIds: { [key]: id },
           }, `${provider} ${key} differs from the canonical ID`, provider);
         } else if (!mix.externalIds[key]) {
           mix.externalIds[key] = id;
@@ -292,10 +300,7 @@ export function useMixStore() {
       };
       if (idConflict || (current?.externalId && entity.externalId && current.externalId !== entity.externalId) || profileConflict || imageConflict) {
         const proposed = { ...entity, ...current, externalId: entity.externalId, profile: entity.profile || current?.profile, imageUrl: entity.imageUrl || current?.imageUrl, url: entity.url || current?.url };
-        const next = [...mix.entities];
-        if (index >= 0) next[index] = proposed;
-        else next.push(proposed);
-        queueClaim(`enrich-discogs-entity-${safeId(entity.kind + '-' + entity.name)}`, { entities: next },
+        queueClaim(`enrich-discogs-entity-${safeId(entity.kind + '-' + entity.name)}`, { entities: [proposed] },
           `Discogs ${entity.kind} profile or identity differs from the canonical record`);
       } else if (index < 0) {
         mix.entities.push(merged);

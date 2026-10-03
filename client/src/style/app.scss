@@ -464,7 +464,10 @@ select, textarea, input[type="number"] {
 .entity-row h3 { margin: 5px 0 8px; font-size: 18px; }
 .entity-row p { white-space: pre-line; margin: 0 0 10px; line-height: 1.5; }
 .entity-row a { color: var(--primary, #c9774b); }
-@media (max-width: 600px) { .entity-row { gap: 12px; } .entity-row img { width: 64px; height: 64px; } }
+.entity-claim p { white-space: pre-line; line-height: 1.5; margin: 8px 0; }
+.entity-claim small { display: block; margin-top: 4px; }
+.entity-claim a { color: var(--primary, #c9774b); }
+@media (max-width: 600px) { .entity-row { flex-direction: column; gap: 12px; } .entity-row img { width: 64px; height: 64px; } }
 .artwork-frame {
   position: relative;
   width: 100%;

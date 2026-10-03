@@ -32,7 +32,15 @@
           <dl class="diff-list">
             <template v-for="(value, key) in candidate.fields" :key="key">
               <dt>{{ key }}</dt>
-              <dd>{{ display(value) }}</dd>
+              <dd v-if="key === 'entities'" class="entity-claim">
+                <div v-for="entity in entityClaims(value)" :key="entity.kind + entity.externalId">
+                  <strong>{{ entity.name }} · {{ entity.kind }}</strong>
+                  <small v-if="entity.externalId">Discogs ID {{ entity.externalId }}</small>
+                  <p v-if="entity.profile">{{ entity.profile }}</p>
+                  <a v-if="entity.url" :href="entity.url" target="_blank" rel="noopener noreferrer">View proposed profile</a>
+                </div>
+              </dd>
+              <dd v-else>{{ display(value) }}</dd>
             </template>
           </dl>
           <div class="review-actions">
@@ -70,6 +78,7 @@ import { computed } from 'vue';
 import ArtworkFrame from '../components/ArtworkFrame.vue';
 import SourceBadge from '../components/SourceBadge.vue';
 import { useMixStore } from '../composables/useMixStore';
+import type { EntityRef } from '../domain/types';
 
 const { state, applyCandidate, rejectCandidate, markReviewed } = useMixStore();
 
@@ -88,4 +97,6 @@ const display = (value: unknown) => Array.isArray(value)
   : typeof value === 'object'
     ? JSON.stringify(value)
     : String(value ?? '—');
+
+const entityClaims = (value: unknown): EntityRef[] => Array.isArray(value) ? value as EntityRef[] : [];
 </script>
