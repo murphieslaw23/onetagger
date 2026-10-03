@@ -99,6 +99,10 @@ export class CatalogRepository {
  saveRecord(input:CatalogRecord,expectedRevision?:number):CatalogRecord{
   if(!this.depth)return this.transaction(tx=>tx.saveRecord(input,expectedRevision));
   let record=CatalogRecordSchema.parse(input);
+  const resolved:Record<string,unknown>={...record};
+  for(const field of ['artistIds','crewIds','labelIds','eventIds','organizerIds'])if(Array.isArray(resolved[field]))resolved[field]=[...new Set((resolved[field] as string[]).map(id=>this.resolveId(id)))];
+  if(record.category==='entity')resolved.relationships=record.relationships.map(relation=>({...relation,targetId:this.resolveId(relation.targetId)}));
+  record=CatalogRecordSchema.parse(resolved);
   const current=this.loadRecord(record.id);
   if(expectedRevision!==undefined&&current?.revision!==expectedRevision)throw new RevisionConflict();
   if(current&&current.category!==record.category)throw new Error('Canonical record category cannot change');
