@@ -769,7 +769,7 @@ select, textarea, input[type="number"] {
 .provider-setup__body ol { margin: 18px 0; padding-left: 22px; }
 .provider-setup__body li { margin-bottom: 12px; padding-left: 4px; }
 .provider-setup__body a { color: var(--copper-bright); text-decoration: underline; text-underline-offset: 3px; }
-.provider-setup__body pre { overflow-x: auto; margin: 20px 0; padding: 18px; border: 1px solid var(--line-strong); background: #0b0a09; color: var(--copper-bright); font: 12px/1.6 var(--mono); }
+.provider-setup__body pre { overflow-x: auto; overflow-wrap: anywhere; white-space: pre-wrap; margin: 20px 0; padding: 18px; border: 1px solid var(--line-strong); background: #0b0a09; color: var(--copper-bright); font: 12px/1.6 var(--mono); }
 .provider-setup__intro { margin: 0; }
 .provider-setup__note { border-left: 2px solid var(--copper); padding-left: 12px; }
 .job-row__body strong {
