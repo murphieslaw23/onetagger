@@ -599,6 +599,16 @@ select, textarea, input[type="number"] {
   flex-wrap: wrap;
   gap: 8px;
 }
+.soundcloud-cover-link { margin-top: 14px; padding: 16px; border: 1px solid var(--line-strong); background: var(--panel); }
+.soundcloud-cover-link > strong { display: block; font: 900 18px var(--condensed); text-transform: uppercase; }
+.soundcloud-cover-link p { margin: 8px 0 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.soundcloud-cover-link label, .soundcloud-cover-link__preview small { display: block; margin-bottom: 7px; color: var(--muted-2); font: 9px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.soundcloud-cover-link__form { display: flex; gap: 8px; }
+.soundcloud-cover-link__form input { min-width: 0; flex: 1; min-height: 42px; padding: 0 12px; border: 1px solid var(--line-strong); background: var(--bg-raised); color: var(--text); }
+.soundcloud-cover-link__error { color: var(--danger) !important; }
+.soundcloud-cover-link__preview { display: grid; grid-template-columns: 94px minmax(0, 1fr); gap: 14px; align-items: center; margin-top: 16px; }
+.soundcloud-cover-link__preview img { width: 94px; height: 94px; object-fit: cover; }
+.soundcloud-cover-link__preview strong { display: block; margin-bottom: 12px; font-size: 13px; }
 .missing-strip {
   margin-top: 16px;
   min-height: 44px;
@@ -728,6 +738,7 @@ select, textarea, input[type="number"] {
   .split-fields--compact { grid-template-columns: 1fr 1fr; }
   .enrichment-toggle { margin-left: 12px; margin-right: 12px; }
   .detail-actions .btn { width: 100%; }
+  .soundcloud-cover-link__form { flex-direction: column; }
   .missing-strip { align-items: flex-start; }
   .record-review-row {
     grid-template-columns: 54px minmax(0, 1fr);

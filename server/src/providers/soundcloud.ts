@@ -61,21 +61,38 @@ export class SoundCloudProvider implements DiscoveryProvider {
     }
   }
 
-  async lookupArtwork(sourceUrl: string, signal?: AbortSignal): Promise<string | undefined> {
-    const source = new URL(sourceUrl);
-    if (!['soundcloud.com', 'www.soundcloud.com'].includes(source.hostname) || source.pathname.split('/').filter(Boolean).length < 2) {
+  async resolvePublicArtwork(sourceUrl: string, signal?: AbortSignal): Promise<{ sourceUrl: string; title?: string; artworkUrl?: string }> {
+    let source: URL;
+    try {
+      source = new URL(sourceUrl);
+    } catch {
       throw new Error('SoundCloud source URL is invalid');
     }
+    if (!['https:', 'http:'].includes(source.protocol)
+      || !['soundcloud.com', 'www.soundcloud.com'].includes(source.hostname)
+      || source.username || source.password || source.port
+      || source.pathname.split('/').filter(Boolean).length < 2) {
+      throw new Error('SoundCloud source URL is invalid');
+    }
+    source.protocol = 'https:';
+    source.search = '';
+    source.hash = '';
     const url = new URL('https://soundcloud.com/oembed');
     url.search = new URLSearchParams({ format: 'json', url: source.toString() }).toString();
     const response = await withTimeout((inner) => fetch(url, { signal: inner, headers: { accept: 'application/json' } }), 12_000, signal);
     if (!response.ok) throw new Error(`SoundCloud oEmbed ${response.status} ${response.statusText || 'request rejected'}`);
-    const payload = await response.json() as { thumbnail_url?: string };
-    if (!payload.thumbnail_url) return undefined;
+    const payload = await response.json() as { title?: string; thumbnail_url?: string };
+    if (!payload.thumbnail_url) return { sourceUrl: source.toString(), title: payload.title };
     const thumbnail = new URL(payload.thumbnail_url);
     // oEmbed may return the uploader avatar when the track has no cover.
-    if (!thumbnail.hostname.endsWith('.sndcdn.com') || !thumbnail.pathname.startsWith('/artworks-')) return undefined;
-    return thumbnail.toString();
+    const artworkUrl = thumbnail.hostname.endsWith('.sndcdn.com') && thumbnail.pathname.startsWith('/artworks-')
+      ? thumbnail.toString()
+      : undefined;
+    return { sourceUrl: source.toString(), title: payload.title, artworkUrl };
+  }
+
+  async lookupArtwork(sourceUrl: string, signal?: AbortSignal): Promise<string | undefined> {
+    return (await this.resolvePublicArtwork(sourceUrl, signal)).artworkUrl;
   }
 
   async search(query: SearchQuery, signal?: AbortSignal): Promise<MixCandidate[]> {

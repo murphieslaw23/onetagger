@@ -120,3 +120,16 @@ export function enrichMixMetadata(mix: MixSet) {
     }),
   });
 }
+
+export async function previewSoundCloudArtwork(url: string): Promise<{ sourceUrl: string; title?: string; artworkUrl: string }> {
+  const response = await fetch(`${API_BASE}/soundcloud/artwork`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url }),
+  });
+  const payload = await response.json() as { sourceUrl?: string; title?: string; artworkUrl?: string; error?: string };
+  if (!response.ok || !payload.sourceUrl || !payload.artworkUrl) {
+    throw new Error(payload.error || `SoundCloud artwork lookup failed (${response.status})`);
+  }
+  return { sourceUrl: payload.sourceUrl, title: payload.title, artworkUrl: payload.artworkUrl };
+}

@@ -73,6 +73,19 @@ const server = http.createServer(async (req, res) => {
       if (!input.title || !Array.isArray(input.artists)) return json(req, res, 400, { error: 'title and artists are required' });
       return json(req, res, 200, await enrichMix(registry, input));
     }
+    if (req.method === 'POST' && url.pathname === '/api/soundcloud/artwork') {
+      const input = await body(req);
+      if (typeof input.url !== 'string' || input.url.length > 2048) return json(req, res, 400, { error: 'A public SoundCloud track URL is required' });
+      try {
+        const artwork = await registry.soundcloud.resolvePublicArtwork(input.url);
+        return artwork.artworkUrl
+          ? json(req, res, 200, artwork)
+          : json(req, res, 422, { error: 'That SoundCloud link has no track cover artwork' });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return json(req, res, message.includes('URL is invalid') ? 400 : 502, { error: message });
+      }
+    }
     if (req.method === 'POST' && url.pathname === '/api/discogs/enrich') {
       const input = await body(req);
       if (!input.name) return json(req, res, 400, { error: 'name is required' });

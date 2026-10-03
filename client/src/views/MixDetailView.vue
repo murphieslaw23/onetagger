@@ -34,6 +34,9 @@
             <q-icon :name="enriching ? 'mdi-loading mdi-spin' : 'mdi-database-sync-outline'" />
             {{ enriching ? 'Enriching…' : 'Enrich missing metadata' }}
           </button>
+          <button v-if="!mix.artwork.length" class="btn" type="button" :aria-expanded="showSoundCloudLink" aria-controls="soundcloud-cover-link" @click="showSoundCloudLink = !showSoundCloudLink">
+            <q-icon name="mdi-image-plus-outline" /> Add cover from SoundCloud link
+          </button>
           <router-link v-if="pendingCandidates.length" to="/review" class="btn">
             <q-icon name="mdi-source-merge" /> Review {{ pendingCandidates.length }} conflict{{ pendingCandidates.length === 1 ? '' : 's' }}
           </router-link>
@@ -41,6 +44,27 @@
             <q-icon name="mdi-check" /> Mark reviewed
           </button>
         </div>
+
+        <section v-if="showSoundCloudLink && !mix.artwork.length" id="soundcloud-cover-link" class="soundcloud-cover-link" aria-label="Add SoundCloud cover">
+          <strong>Have a public SoundCloud link for this mix?</strong>
+          <p>Preview its track cover without an API account. Confirm the preview belongs to this mix before using it.</p>
+          <form @submit.prevent="previewCover">
+            <label for="soundcloud-cover-url">SoundCloud track URL</label>
+            <div class="soundcloud-cover-link__form">
+              <input id="soundcloud-cover-url" v-model.trim="soundCloudUrl" type="url" required placeholder="https://soundcloud.com/artist/mix" autocomplete="url" @input="clearCoverPreview" />
+              <button class="btn" type="submit" :disabled="previewing">{{ previewing ? 'Checking…' : 'Preview cover' }}</button>
+            </div>
+          </form>
+          <p v-if="coverError" class="soundcloud-cover-link__error" role="alert">{{ coverError }}</p>
+          <div v-if="coverPreview" class="soundcloud-cover-link__preview">
+            <img :src="coverPreview.artworkUrl" :alt="'SoundCloud cover for ' + (coverPreview.title || 'track')" />
+            <div>
+              <small>SOUNDCLOUD PREVIEW</small>
+              <strong>{{ coverPreview.title || 'Public track' }}</strong>
+              <button class="btn btn--primary" type="button" @click="confirmCover">Use this cover</button>
+            </div>
+          </div>
+        </section>
 
         <div class="detail-stats">
           <div><span>DURATION</span><strong>{{ duration }}</strong></div>
@@ -142,6 +166,7 @@ import ArtworkFrame from '../components/ArtworkFrame.vue';
 import SourceBadge from '../components/SourceBadge.vue';
 import WaveformStrip from '../components/WaveformStrip.vue';
 import { useMixStore } from '../composables/useMixStore';
+import { previewSoundCloudArtwork } from '../services/api';
 
 const route = useRoute();
 const $q = useQuasar();
@@ -151,9 +176,15 @@ const {
   rejectCandidate,
   markReviewed,
   enrichMixRecord,
+  useSoundCloudCover,
 } = useMixStore();
 
 const enriching = ref(false);
+const previewing = ref(false);
+const showSoundCloudLink = ref(false);
+const soundCloudUrl = ref('');
+const coverError = ref('');
+const coverPreview = ref<Awaited<ReturnType<typeof previewSoundCloudArtwork>> | null>(null);
 const mix = computed(() => findMix(String(route.params.id)));
 const pendingCandidates = computed(() => mix.value?.candidates.filter((candidate) => candidate.state === 'pending') ?? []);
 
@@ -207,5 +238,35 @@ function markCurrentReviewed() {
   if (!mix.value) return;
   markReviewed(mix.value);
   $q.notify({ message: 'Canonical record marked reviewed', position: 'top-right' });
+}
+
+function clearCoverPreview() {
+  coverPreview.value = null;
+  coverError.value = '';
+}
+
+async function previewCover() {
+  if (!mix.value || previewing.value) return;
+  previewing.value = true;
+  clearCoverPreview();
+  try {
+    coverPreview.value = await previewSoundCloudArtwork(soundCloudUrl.value);
+  } catch (error) {
+    coverError.value = error instanceof Error ? error.message : 'SoundCloud cover lookup failed';
+  } finally {
+    previewing.value = false;
+  }
+}
+
+function confirmCover() {
+  if (!mix.value || !coverPreview.value) return;
+  try {
+    useSoundCloudCover(mix.value, coverPreview.value.sourceUrl, coverPreview.value.artworkUrl);
+    coverPreview.value = null;
+    showSoundCloudLink.value = false;
+    $q.notify({ message: 'SoundCloud cover added without replacing other metadata', position: 'top-right' });
+  } catch (error) {
+    coverError.value = error instanceof Error ? error.message : 'Could not add SoundCloud cover';
+  }
 }
 </script>

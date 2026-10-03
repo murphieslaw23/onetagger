@@ -52,7 +52,8 @@
         <p class="provider-setup__intro">Enter credentials only in the private VPS terminal. This public page never asks for or stores them.</p>
 
         <template v-if="setupProvider === 'soundcloud'">
-          <h2>Enable SoundCloud search and artwork enrichment</h2>
+          <h2>SoundCloud search requires Artist Pro</h2>
+          <p class="provider-setup__note">No Artist Pro? Open an indexed mix with missing artwork and choose <strong>Add cover from SoundCloud link</strong>. Paste the public track URL, preview its cover, and confirm it belongs to that mix. This works without API credentials. Automatic SoundCloud search remains unavailable.</p>
           <ol>
             <li>Sign in to SoundCloud and <a href="https://developers.soundcloud.com/docs/api/register-app" target="_blank" rel="noopener noreferrer">follow its app registration guide</a>. SoundCloud currently requires Artist Pro to create API credentials.</li>
             <li>Create or open your app and copy its Client ID and Client Secret. Public search uses an app token; there is no separate Mixsets account login.</li>
@@ -60,7 +61,7 @@
           </ol>
           <pre><code>cd /opt/syco23-mixsets
 python3 deploy/vps/setup_providers.py soundcloud</code></pre>
-          <p class="provider-setup__note">Already-linked public SoundCloud tracks can supply cover artwork without these credentials. Finding SoundCloud matches for mixes from other sources needs this setup.</p>
+          <p>Already-linked public SoundCloud tracks can also supply artwork during normal enrichment without these credentials.</p>
         </template>
 
         <template v-else>
@@ -83,7 +84,7 @@ python3 deploy/vps/setup_providers.py discogs</code></pre>
 
     <section class="panel limits-panel">
       <div class="panel-head"><span>INDEXING RULE</span><b>NO INVISIBLE SCRAPING</b></div>
-      <p>SoundCloud uses the official API and needs valid credentials. Discogs is enrichment-first and never forces a long mix into a release/track model. Archive.org stays public-API based. Freeteknomusic is crawled as bounded HTTP directory listings and is never treated as an FTP server.</p>
+      <p>SoundCloud search needs official API credentials; artwork from a known public track link uses oEmbed. Discogs is enrichment-first and never forces a long mix into a release/track model. Archive.org stays public-API based. Freeteknomusic is crawled as bounded HTTP directory listings and is never treated as an FTP server.</p>
     </section>
   </section>
 </template>

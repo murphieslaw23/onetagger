@@ -12,7 +12,7 @@ Uses the official public API for search. Configure `SOUNDCLOUD_CLIENT_ID` and `S
 
 To obtain credentials, sign in to SoundCloud and follow its [app registration guide](https://developers.soundcloud.com/docs/api/register-app). SoundCloud currently requires Artist Pro for API app registration. Public-resource search uses the [client-credentials flow](https://developers.soundcloud.com/docs/api/guide); a user OAuth login inside Mixsets is unnecessary.
 
-For a mix already linked to a public SoundCloud track, the official oEmbed endpoint can supply track artwork without API credentials. Avatar fallbacks are rejected. Searching SoundCloud for artwork on mixes from other providers still requires app credentials.
+If you do not have Artist Pro, open an indexed mix with missing artwork and choose **Add cover from SoundCloud link**. Paste the exact public track URL, inspect its title and cover preview, then confirm it is the same mix. The worker uses SoundCloud's oEmbed endpoint without API credentials; uploader avatar fallbacks are rejected. The link and cover are saved only after confirmation, and existing canonical artwork is never replaced. An already-linked public SoundCloud track can also supply artwork during normal enrichment. Automatic SoundCloud search across other mixes still requires app credentials.
 
 No HTML scraping, access-control bypass or protected stream extraction is implemented.
 

@@ -132,6 +132,27 @@ export function useMixStore() {
     mix.completeness = calculateCompleteness(mix);
   }
 
+  function useSoundCloudCover(mix: MixSet, sourceUrl: string, artworkUrl: string) {
+    if (mix.artwork.length) throw new Error('This mix already has cover artwork');
+    const sourcePath = new URL(sourceUrl).pathname.replace(/\/$/, '');
+    const linkedMix = state.mixes.find((item) => item.sources.some((source) => {
+      if (source.provider !== 'soundcloud') return false;
+      try { return new URL(source.url).pathname.replace(/\/$/, '') === sourcePath; } catch { return false; }
+    }));
+    if (linkedMix && linkedMix.id !== mix.id) throw new Error('That SoundCloud track is already linked to another mix');
+    if (!linkedMix) mix.sources.push({ provider: 'soundcloud', url: sourceUrl });
+    mix.artwork.push({ url: artworkUrl, source: 'soundcloud', kind: 'cover' });
+    mix.provenance.push({
+      provider: 'soundcloud',
+      field: 'artwork',
+      confidence: 0.99,
+      observedAt: new Date().toISOString(),
+      sourceUrl,
+    });
+    mix.updatedAt = new Date().toISOString();
+    refreshCompleteness(mix);
+  }
+
   function applyCandidate(mix: MixSet, candidate: MixCandidate) {
     const patch = candidate.fields;
     for (const [key, value] of Object.entries(patch)) {
@@ -439,6 +460,7 @@ export function useMixStore() {
     findMix,
     findMixBySource,
     findCandidateMatch,
+    useSoundCloudCover,
     applyCandidate,
     rejectCandidate,
     markReviewed,
