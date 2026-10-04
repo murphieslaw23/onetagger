@@ -1,5 +1,6 @@
 import type { IncomingMessage,ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
+import { linkPublicCover } from './cover.js';
 import { waveformPath } from './media.js';
 import { migrateLegacyLibrary } from './migration.js';
 import { z } from 'zod';
@@ -27,6 +28,8 @@ export async function handleCatalogRoute(context:ApiContext,req:IncomingMessage,
  if(req.method==='GET'&&index){const query=z.object({q:z.string().max(1000).optional(),offset:z.coerce.number().int().nonnegative().default(0),limit:z.coerce.number().int().min(1).max(50).default(50)}).parse(Object.fromEntries(url.searchParams));reply(200,repo.listIndex(index[1] as IndexKind,{...query,includeProposed:!!actor&&url.searchParams.get('includeProposed')==='true'}));return true;}
  const record=path.match(/^\/api\/catalog\/records\/([^/]+)$/);
  if(req.method==='GET'&&record){const detail=repo.getRecord(decodeURIComponent(record[1]));if(!detail||(!actor&&detail.record.verification==='proposed'))throw new HttpError(404,'Record not found');reply(200,actor?detail:publicDetail(detail));return true;}
+ const cover=path.match(/^\/api\/catalog\/records\/([^/]+)\/cover$/);
+ if(req.method==='POST'&&cover){const input=z.object({provider:z.enum(['soundcloud','youtube','hearthis']),sourceUrl:HttpUrlSchema,revision:z.number().int().positive()}).strict().parse(await body(req));reply(200,await linkPublicCover(repo,context.registry,decodeURIComponent(cover[1]),input.provider,input.sourceUrl,input.revision,requireCurator(context,req)));return true;}
  const enrichment=path.match(/^\/api\/catalog\/records\/([^/]+)\/enrich$/);
  if(req.method==='POST'&&enrichment){reply(200,await enrichCatalogRecord(repo,context.registry,decodeURIComponent(enrichment[1]),requireCurator(context,req)));return true;}
  if(req.method==='POST'&&path==='/api/catalog/import'){reply(200,importCandidate(repo,CandidateSchema.parse(await body(req)),requireCurator(context,req)));return true;}

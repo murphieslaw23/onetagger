@@ -7,7 +7,7 @@
     "dev:web": "pnpm --dir client dev",
     "dev:api": "pnpm --dir server dev",
     "build": "pnpm --dir packages/domain build && pnpm --dir client build && pnpm --dir server build",
-    "test": "pnpm --dir packages/domain test && pnpm --dir server test",
+    "test": "pnpm --dir packages/domain test && pnpm --dir server test && pnpm --dir client test",
     "typecheck": "pnpm --dir packages/domain build && pnpm --dir client exec vue-tsc --noEmit && pnpm --dir server typecheck"
   }
 }

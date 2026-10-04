@@ -35,16 +35,16 @@
         <option value="enriching">Enriching</option>
         <option value="error">Error</option>
       </select>
-      <router-link class="btn btn--primary" to="/import"><q-icon name="mdi-plus" /> Import signal</router-link>
+      <router-link class="btn btn--primary" v-if="catalog.state.authenticated" to="/import"><q-icon name="mdi-plus" /> Import signal</router-link>
     </div>
 
-    <div v-if="state.selected.size" class="bulk-bar">
+    <div v-if="catalog.state.authenticated && state.selected.size" class="bulk-bar">
       <strong>{{ state.selected.size }} selected</strong>
       <button :disabled="bulkBusy" @click="enrichSelected">
         <q-icon :name="bulkBusy ? 'mdi-loading mdi-spin' : 'mdi-database-sync-outline'" />
         {{ bulkBusy ? 'Enriching…' : 'Enrich missing' }}
       </button>
-      <button :disabled="bulkBusy" @click="markSelectedReviewed"><q-icon name="mdi-check" /> Mark reviewed</button>
+
       <button :disabled="bulkBusy" @click="clearSelection">Clear</button>
     </div>
 
@@ -72,12 +72,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch }  from 'vue';
 import { useQuasar } from 'quasar';
 import MixCard from '../components/MixCard.vue';
+import {useCatalogStore} from '../catalog/store';
 import { useMixStore } from '../composables/useMixStore';
 
 const $q = useQuasar();
+const catalog=useCatalogStore();
+let searchTimer:ReturnType<typeof setTimeout>;
+watch(()=>state.query,()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>void catalog.loadIndex('mix',{q:state.query}).catch(()=>{}),250);});
+onMounted(()=>void catalog.loadIndex('mix').catch(()=>{}));
 const {
   state,
   filtered,

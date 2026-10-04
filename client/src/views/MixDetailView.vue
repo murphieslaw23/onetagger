@@ -29,7 +29,7 @@
           </a>
         </div>
 
-        <div class="detail-actions">
+        <div v-if="catalog.state.authenticated" class="detail-actions">
           <button class="btn btn--primary" :disabled="enriching" @click="runEnrichment">
             <q-icon :name="enriching ? 'mdi-loading mdi-spin' : 'mdi-database-sync-outline'" />
             {{ enriching ? 'Enriching…' : 'Enrich missing metadata' }}
@@ -40,9 +40,7 @@
           <router-link v-if="pendingCandidates.length" to="/review" class="btn">
             <q-icon name="mdi-source-merge" /> Review {{ pendingCandidates.length }} conflict{{ pendingCandidates.length === 1 ? '' : 's' }}
           </router-link>
-          <button v-else-if="mix.status === 'review'" class="btn" @click="markCurrentReviewed">
-            <q-icon name="mdi-check" /> Mark reviewed
-          </button>
+
         </div>
 
         <section v-if="showCoverLink && !mix.artwork.length" id="public-cover-link" class="soundcloud-cover-link" aria-label="Add cover from public link">
@@ -85,7 +83,7 @@
       <div class="panel-head"><span>AUDIO ANALYSIS</span><b>{{ mix.waveform ? 'WAVEFORM ANALYZED' : analyzing ? `ANALYZING ${analysisProgress}%` : 'NOT RUN' }}</b></div>
       <WaveformStrip :image-data-url="mix.waveform?.imageDataUrl" />
       <div class="waveform-action">
-        <button v-if="!mix.waveform && audioSource" class="btn" type="button" :disabled="analyzing" @click="runWaveformAnalysis">
+        <button v-if="catalog.state.authenticated && !mix.waveform && audioSource" class="btn" type="button" :disabled="analyzing" @click="runWaveformAnalysis">
           <q-icon :name="analyzing ? 'mdi-loading mdi-spin' : 'mdi-waveform'" />
           {{ analyzing ? `Analyzing audio ${analysisProgress}%` : 'Analyze waveform' }}
         </button>
@@ -163,13 +161,15 @@
   </section>
 
   <section v-else class="page empty-state">
-    <strong>Mix set not found.</strong>
+    <strong>{{ loading ? 'Loading shared record…' : loadError || 'Mix set not found.' }}</strong>
     <router-link to="/" class="btn">Return to library</router-link>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch }  from 'vue';
+import { useCatalogStore } from '../catalog/store';
+import { fieldLabel } from '../catalog/views';
 import { useRoute } from 'vue-router';
 import { useQuasar } from 'quasar';
 import ArtworkFrame from '../components/ArtworkFrame.vue';
@@ -179,6 +179,9 @@ import { useMixStore } from '../composables/useMixStore';
 import { createWaveformJob, getWaveformJob, previewPublicArtwork } from '../services/api';
 
 const route = useRoute();
+const catalog=useCatalogStore();
+const loading=ref(true),loadError=ref('');
+watch(()=>route.params.id,async(id)=>{loading.value=true;loadError.value='';try{await catalog.loadDetail(String(id));}catch(error){loadError.value=error instanceof Error?error.message:'Could not load mix';}finally{loading.value=false;}},{immediate:true});
 const $q = useQuasar();
 const {
   findMix,
@@ -217,19 +220,7 @@ const duration = computed(() => {
   return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
 });
 
-const missingFields = computed(() => {
-  if (!mix.value) return [];
-  const missing: string[] = [];
-  if (!mix.value.artwork.length) missing.push('artwork');
-  if (!mix.value.description) missing.push('description');
-  if (!mix.value.recordedAt) missing.push('date');
-  if (!mix.value.genres.length && !mix.value.styles.length) missing.push('genre');
-  if (!mix.value.crews.length) missing.push('crew/system');
-  if (!mix.value.event) missing.push('event');
-  if (!mix.value.location) missing.push('location');
-  if (!mix.value.durationMs) missing.push('duration');
-  return missing;
-});
+const missingFields = computed(() => mix.value?.missingFields.map(fieldLabel) || []);
 
 const updatedLabel = computed(() => {
   if (!mix.value?.updatedAt) return '—';
@@ -262,7 +253,7 @@ async function runWaveformAnalysis() {
   analyzing.value = true;
   analysisProgress.value = 0;
   try {
-    const started = await createWaveformJob(sourceUrl);
+    const started = await createWaveformJob(sourceUrl,current.id);
     for (let attempt = 0; attempt < 160; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
       if (!mounted) return;
@@ -270,9 +261,7 @@ async function runWaveformAnalysis() {
       analysisProgress.value = job.progress;
       if (job.state === 'error') throw new Error(job.error || 'Audio analysis failed');
       if (job.state === 'done') {
-        if (!job.imageDataUrl || !job.analyzedAt) throw new Error('The worker returned no waveform');
-        current.waveform = { imageDataUrl: job.imageDataUrl, analyzedAt: job.analyzedAt, sourceUrl };
-        current.updatedAt = new Date().toISOString();
+        await catalog.loadDetail(current.id);
         $q.notify({ message: 'Waveform generated from the full audio recording', position: 'top-right' });
         return;
       }
@@ -329,10 +318,10 @@ async function previewCover() {
   }
 }
 
-function confirmCover() {
+async function confirmCover() {
   if (!mix.value || !coverPreview.value || coverPreviewMixId.value !== mix.value.id) return;
   try {
-    useLinkedCover(mix.value, coverPreview.value.provider, coverPreview.value.sourceUrl, coverPreview.value.artworkUrl);
+    await useLinkedCover(mix.value, coverPreview.value.provider, coverPreview.value.sourceUrl, coverPreview.value.artworkUrl);
     coverPreview.value = null;
     showCoverLink.value = false;
     $q.notify({ message: 'Cover added without replacing other metadata', position: 'top-right' });

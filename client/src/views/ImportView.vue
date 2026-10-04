@@ -4,7 +4,7 @@
       <div>
         <p class="kicker">DISCOVERY / JOB CONTROL</p>
         <h1>Pull a signal. Keep the source.</h1>
-        <p class="hero-copy">Imports run as bounded jobs. Discovery creates reviewable candidates; indexing can optionally fill missing metadata from the remaining available providers.</p>
+        <p class="hero-copy">Imports run as bounded jobs. Discovery creates reviewable candidates; indexing can optionally fill missing metadata across available providers.</p>
       </div>
     </header>
 
@@ -65,7 +65,7 @@
           <input v-model="autoEnrich" type="checkbox" />
           <span>
             <strong>Auto-enrich missing metadata after indexing</strong>
-            <small>Queries remaining available providers for missing artwork, description, date, genres and source IDs. Conflicts stay in Review.</small>
+            <small>Queries available providers for missing artwork, description, date, genres and source IDs. Conflicts stay in Review.</small>
           </span>
         </label>
 
@@ -122,6 +122,7 @@
           </div>
           <div class="discovery-row__identity">
             <h3>{{ candidate.title }}</h3>
+            <p v-if="candidate.crews.length">Crew: {{ candidate.crews.join(' · ') }}</p>
             <p>{{ candidate.artists.join(' · ') || 'Unknown artist' }}</p>
             <small>{{ candidate.reasons.join(' · ') }}</small>
           </div>
@@ -333,8 +334,10 @@ async function runJobAction(job: ImportJob) {
 
 async function importCandidate(candidate: ApiMixCandidate) {
   busySources.value.add(candidate.source.url);
+  let indexed = false;
   try {
-    const mix = addDiscoveredCandidate(candidate);
+    const mix = await addDiscoveredCandidate(candidate);
+    indexed = true;
     if (!autoEnrich.value) {
       $q.notify({ message: `Indexed “${mix.title}”`, position: 'top-right' });
       return;
@@ -348,14 +351,14 @@ async function importCandidate(candidate: ApiMixCandidate) {
       ? ` · ${summary.reviewCandidatesAdded} conflict${summary.reviewCandidatesAdded === 1 ? '' : 's'} sent to Review`
       : '';
     $q.notify({
-      message: `Indexed + enriched “${mix.title}”: ${filled}${conflicts}${summary.failures.length ? ` · ${summary.failures.map((failure) => failure.provider).join(', ')} unavailable` : ''} · ${Math.round(mix.completeness * 100)}% complete`,
+      message: `Indexed + enriched “${mix.title}”: ${filled}${conflicts}${summary.failures.length ? ` · ${summary.failures.map((failure) => failure.provider).join(', ')} unavailable` : ''} · ${summary.remainingMissing.length} fields still missing`,
       position: 'top-right',
       timeout: 5000,
     });
   } catch (error) {
     $q.notify({
       type: 'warning',
-      message: `Mix indexed, but enrichment could not complete: ${error instanceof Error ? error.message : String(error)}`,
+      message: `${indexed ? 'Mix indexed; enrichment could not complete' : 'Import was not saved'}: ${error instanceof Error ? error.message : String(error)}`,
       timeout: 5000,
     });
   } finally {

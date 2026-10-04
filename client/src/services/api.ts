@@ -60,19 +60,21 @@ export interface ApiEnrichmentResult {
   failures: Array<{ provider: ProviderId; error: string }>;
 }
 
-const API_BASE = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '');
+export const API_BASE = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '');
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
+    credentials: 'include',
     headers: {
       'content-type': 'application/json',
       ...(init?.headers || {}),
     },
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `API ${response.status}`);
+    const payload=await response.json().catch(()=>({error:'Worker request failed'}));
+    if(response.status===401&&typeof window!=='undefined')window.dispatchEvent(new Event('mixsets-login-required'));
+    throw new Error(payload.error || `API ${response.status}`);
   }
   return response.json() as Promise<T>;
 }
@@ -129,10 +131,12 @@ export interface ApiWaveformJob {
   imageDataUrl?: string;
   error?: string;
   analyzedAt?: string;
+  assetUrl?: string;
+  mixId?: string;
 }
 
-export function createWaveformJob(sourceUrl: string) {
-  return request<ApiWaveformJob>('/waveforms', { method: 'POST', body: JSON.stringify({ sourceUrl }) });
+export function createWaveformJob(sourceUrl: string,mixId:string) {
+  return request<ApiWaveformJob>('/waveforms', { method: 'POST', body: JSON.stringify({ sourceUrl,mixId }) });
 }
 
 export function getWaveformJob(id: string) {
@@ -142,6 +146,7 @@ export function getWaveformJob(id: string) {
 export async function previewSoundCloudArtwork(url: string): Promise<{ sourceUrl: string; title?: string; artworkUrl: string }> {
   const response = await fetch(`${API_BASE}/soundcloud/artwork`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ url }),
   });
@@ -154,7 +159,7 @@ export async function previewSoundCloudArtwork(url: string): Promise<{ sourceUrl
 
 export async function previewPublicArtwork(provider: 'soundcloud' | 'youtube' | 'hearthis', url: string): Promise<{ provider: ProviderId; sourceUrl: string; title?: string; artworkUrl: string }> {
   const response = await fetch(`${API_BASE}/artwork/preview`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider, url }),
+    method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider, url }),
   });
   const payload = await response.json() as { provider?: ProviderId; sourceUrl?: string; title?: string; artworkUrl?: string; error?: string };
   if (!response.ok || !payload.sourceUrl || !payload.artworkUrl || !payload.provider) {
