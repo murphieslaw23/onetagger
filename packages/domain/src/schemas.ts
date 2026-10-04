@@ -203,6 +203,11 @@ export const FieldEvidenceListSchema = z.object({
   evidence: z.array(FieldEvidenceSchema)
 }).strict();
 
+export const RelatedMixesSchema = z.object({
+  recordId: RecordIdSchema,
+  mixes: z.array(CatalogRecordSchema)
+}).strict();
+
 export const ProviderMetadataSchema = z.object({
   provider: ProviderRefSchema,
   sourceUrl: httpUrlSchema,
@@ -303,3 +308,4 @@ export type ReviewItem = z.infer<typeof ReviewItemSchema>;
 export type ClaimDisposition = z.infer<typeof ClaimDispositionSchema>;
 export type FieldEvidence = z.infer<typeof FieldEvidenceSchema>;
 export type FieldEvidenceList = z.infer<typeof FieldEvidenceListSchema>;
+export type RelatedMixes = z.infer<typeof RelatedMixesSchema>;

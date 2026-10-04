@@ -252,6 +252,22 @@ export async function handleCatalogRoute(context: CatalogRouteContext, request: 
     return true;
   }
 
+  const relatedMatch = path.match(/^\/api\/catalog\/records\/([^/]+)\/related-mixes$/);
+  if (request.method === 'GET' && relatedMatch) {
+    const record = context.repository.getRecord(recordId(relatedMatch[1]));
+    if (!record || (record.verification === 'proposed' && !context.auth.authenticate(request))) {
+      sendJson(response, 404, { error: 'Catalog record not found' });
+      return true;
+    }
+    // Only an entity has inbound mix references; an event lists its own mixIds and a
+    // mix has none. Returning [] keeps the response shape stable for the detail view.
+    sendJson(response, 200, {
+      recordId: record.id,
+      mixes: record.kind === 'entity' ? context.repository.listRelatedMixes(record.id) : []
+    });
+    return true;
+  }
+
   const evidenceMatch = path.match(/^\/api\/catalog\/records\/([^/]+)\/evidence$/);
   if (request.method === 'GET' && evidenceMatch) {
     const record = context.repository.getRecord(recordId(evidenceMatch[1]));

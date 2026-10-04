@@ -240,6 +240,45 @@ test('curator waveform upload persists PNG bytes and public media GET serves the
   }
 });
 
+test('an entity page lists the mixes that reference it, including imported ones', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'syco23-related-mixes-'));
+  const repo = openCatalog(join(directory, 'catalog.sqlite'));
+  const previousOrigin = process.env.CORS_ORIGIN;
+  process.env.CORS_ORIGIN = 'http://localhost:5173';
+  const entityId = 'entity_01J9CATALOGUE00000000000070';
+  try {
+    repo.transaction((tx) => {
+      tx.saveRecord({
+        kind: 'entity', id: entityId, createdAt: timestamp, updatedAt: timestamp, revision: 1,
+        verification: 'source-confirmed', reviewState: 'ready', displayName: 'Mackitek',
+        roles: ['artist'], aliases: [], assets: [], providerRefs: []
+      });
+      tx.saveRecord({ ...mix(), people: [{ entityId, role: 'artist' }] });
+      // A second mix for another artist must not leak into this entity's page.
+      tx.saveRecord({ ...mix(), id: 'mix_01J9CATALOGUE00000000000031', title: 'Unrelated set' });
+    });
+    const auth = createCuratorAuth(repo, hashCuratorPassword('private-local-password'));
+    const context = { repository: repo, auth };
+
+    const response_ = response();
+    await handleCatalogRoute(context, request('GET', `/api/catalog/records/${entityId}/related-mixes`), response_.res);
+    assert.equal(response_.result.status, 200);
+    const body = JSON.parse(response_.result.body ?? '{}');
+    assert.equal(body.recordId, entityId);
+    assert.deepEqual(body.mixes.map((item: { title: string }) => item.title), ['Original mix']);
+
+    // A mix has no inbound entity references; the shape stays stable and empty.
+    const mixResponse = response();
+    await handleCatalogRoute(context, request('GET', `/api/catalog/records/${mix().id}/related-mixes`), mixResponse.res);
+    assert.deepEqual(JSON.parse(mixResponse.result.body ?? '{}').mixes, []);
+  } finally {
+    if (previousOrigin === undefined) delete process.env.CORS_ORIGIN;
+    else process.env.CORS_ORIGIN = previousOrigin;
+    repo.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('field evidence is public and explains why a selected value holds its field', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'syco23-catalog-evidence-'));
   const repo = openCatalog(join(directory, 'catalog.sqlite'));

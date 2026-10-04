@@ -7,6 +7,7 @@ import type {
   ImportResult,
   IndexKind,
   MigrationResult,
+  MixRecord,
   RecordId,
   ReviewItem
 } from '@syco23/catalog-domain';
@@ -19,6 +20,7 @@ export interface CatalogStoreState {
   records: CatalogRecord[];
   detail?: CatalogRecord;
   evidence: FieldEvidence[];
+  relatedMixes: MixRecord[];
   review: ReviewItem[];
   loading: boolean;
   authenticated: boolean;
@@ -30,7 +32,7 @@ export interface CatalogStoreState {
 
 export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
   const state = reactive<CatalogStoreState>({
-    indexKind: 'mix', records: [], evidence: [], review: [], loading: false, authenticated: false,
+    indexKind: 'mix', records: [], evidence: [], relatedMixes: [], review: [], loading: false, authenticated: false,
     page: 1, pageSize: 25, total: 0
   });
 
@@ -99,6 +101,21 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     } catch {
       state.evidence = [];
       return state.evidence;
+    }
+  }
+
+  /**
+   * Mixes that reference this entity. Resets on every call so switching from an
+   * artist with sets to one without cannot leave the previous list on screen.
+   */
+  async function loadRelatedMixes(id: RecordId) {
+    try {
+      const result = await gateway.getRelatedMixes(id);
+      state.relatedMixes = result.mixes.filter((mix): mix is MixRecord => mix.kind === 'mix');
+      return state.relatedMixes;
+    } catch {
+      state.relatedMixes = [];
+      return state.relatedMixes;
     }
   }
 
@@ -243,6 +260,7 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     loadDetail,
     loadReview,
     loadEvidence,
+    loadRelatedMixes,
     checkSession,
     login,
     logout,

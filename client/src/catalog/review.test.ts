@@ -112,4 +112,29 @@ describe('field evidence and review', () => {
     await store.decideReview(item.id, 'accept', item.recordRevision);
     expect(store.state.review).toEqual([]);
   });
+
+  it('lists the mixes that reference an entity from the server response', async () => {
+    const entityId = 'entity_01J9CATALOGUE00000000000091';
+    const other = { ...mix, id: 'mix_01J9CATALOGUE00000000000092', title: 'Second set' };
+    const gateway = {
+      getRecord: vi.fn().mockResolvedValue(mix),
+      getRelatedMixes: vi.fn().mockResolvedValue({ recordId: entityId, mixes: [mix, other] })
+    } as unknown as CatalogGateway;
+    const store = createCatalogStore(gateway);
+    const related = await store.loadRelatedMixes(entityId);
+    expect(related.map((item) => item.title)).toEqual([mix.title, other.title]);
+  });
+
+  it('clears the related mixes so a previous entity cannot leak into the next page', async () => {
+    const gateway = {
+      getRelatedMixes: vi.fn()
+        .mockResolvedValueOnce({ recordId: 'entity_a', mixes: [mix] })
+        .mockResolvedValueOnce({ recordId: 'entity_b', mixes: [] })
+    } as unknown as CatalogGateway;
+    const store = createCatalogStore(gateway);
+    await store.loadRelatedMixes('entity_a');
+    expect(store.state.relatedMixes).toHaveLength(1);
+    await store.loadRelatedMixes('entity_b');
+    expect(store.state.relatedMixes).toEqual([]);
+  });
 });

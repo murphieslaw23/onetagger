@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { missingFields, normalizeName, type CatalogRecord, type EntityRecord, type EventRecord, type RecordId } from '@syco23/catalog-domain';
+import { missingFields, normalizeName, type CatalogRecord, type EntityRecord, type EventRecord, type MixRecord, type RecordId } from '@syco23/catalog-domain';
 import { useCatalogStore } from '../catalog/store';
 import ArtworkFrame from '../components/ArtworkFrame.vue';
 import WaveformStrip from '../components/WaveformStrip.vue';
@@ -15,6 +15,7 @@ const catalog = useCatalogStore;
 const record = shallowRef<CatalogRecord>();
 const linkedEntities = shallowRef<EntityRecord[]>([]);
 const linkedEvents = shallowRef<EventRecord[]>([]);
+const relatedMixes = shallowRef<MixRecord[]>([]);
 const enriching = shallowRef(false);
 const analyzing = shallowRef(false);
 const analysisProgress = shallowRef(0);
@@ -76,6 +77,7 @@ async function loadRecord(id: string) {
   error.value = '';
   linkedEntities.value = [];
   linkedEvents.value = [];
+  relatedMixes.value = [];
   try {
     const current = await catalog.loadDetail(id as RecordId);
     record.value = current;
@@ -89,6 +91,8 @@ async function loadRecord(id: string) {
     }
     // Evidence is best-effort: the record still renders without it.
     await catalog.loadEvidence(current.id as RecordId);
+    // Only an entity has inbound mix references; other kinds return an empty list.
+    relatedMixes.value = await catalog.loadRelatedMixes(current.id as RecordId);
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : 'Record could not be loaded';
   }
@@ -274,13 +278,26 @@ async function runWaveformAnalysis() {
       </section>
 
       <section class="panel">
-        <div class="panel-head"><span>{{ record.kind === 'mix' ? linkedEntities.length + linkedEvents.length : record.kind === 'event' ? record.mixIds.length : record.providerRefs.length }} LINKS</span><b>CONNECTED RECORDS</b></div>
+        <div class="panel-head">
+          <span>{{ record.kind === 'mix' ? linkedEntities.length + linkedEvents.length
+            : record.kind === 'event' ? record.mixIds.length
+            : relatedMixes.length || record.providerRefs.length }} LINKS</span>
+          <b>{{ record.kind === 'entity' ? 'MIXES / SOURCES' : 'CONNECTED RECORDS' }}</b>
+        </div>
         <div v-if="record.kind === 'mix' && linkedEntities.length" class="linked-records">
           <router-link v-for="entity in linkedEntities" :key="entity.id" :to="`/entity/${encodeURIComponent(entity.id)}`">
             <span>{{ entity.roles.join(' / ') }}</span><strong>{{ entity.displayName }}</strong><q-icon name="mdi-arrow-top-right" />
           </router-link>
           <router-link v-for="event in linkedEvents" :key="event.id" :to="`/event/${encodeURIComponent(event.id)}`">
             <span>EVENT</span><strong>{{ event.name }}</strong><q-icon name="mdi-arrow-top-right" />
+          </router-link>
+        </div>
+        <div v-else-if="record.kind === 'entity' && relatedMixes.length" class="linked-records">
+          <router-link v-for="mix in relatedMixes" :key="mix.id" :to="`/mix/${encodeURIComponent(mix.id)}`">
+            <span>MIX</span>
+            <strong>{{ mix.title }}</strong>
+            <small>{{ mix.recordingDate?.value ?? 'Date not recorded' }}</small>
+            <q-icon name="mdi-arrow-top-right" />
           </router-link>
         </div>
         <div v-else-if="record.kind === 'entity'" class="linked-records">

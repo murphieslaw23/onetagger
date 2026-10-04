@@ -6,6 +6,7 @@ import {
   ImportCandidateSchema,
   ImportResultSchema,
   MigrationResultSchema,
+  RelatedMixesSchema,
   ReviewItemSchema,
   type CatalogPage,
   type CatalogRecord,
@@ -17,6 +18,7 @@ import {
   type MigrationResult,
   type PageQuery,
   type RecordId,
+  type RelatedMixes,
   type ReviewItem
 } from '@syco23/catalog-domain';
 
@@ -72,6 +74,11 @@ export const catalogApi = {
    */
   async getEvidence(id: RecordId): Promise<FieldEvidenceList> {
     return FieldEvidenceListSchema.parse(await request(`/catalog/records/${encodeURIComponent(id)}/evidence`));
+  },
+
+  /** Mixes that reference this entity, derived server-side from the mix records. */
+  async getRelatedMixes(id: RecordId): Promise<RelatedMixes> {
+    return RelatedMixesSchema.parse(await request(`/catalog/records/${encodeURIComponent(id)}/related-mixes`));
   },
 
   async getReview(): Promise<ReviewItem[]> {

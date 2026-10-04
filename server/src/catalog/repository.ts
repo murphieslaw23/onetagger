@@ -90,6 +90,16 @@ export interface EnrichmentRun {
 export interface CatalogRepository {
   getRecord(id: RecordId): CatalogDetail | undefined;
   listIndex(kind: IndexKind, query: PageQuery): CatalogPage;
+  /**
+   * Mixes that reference an entity.
+   *
+   * Derived by scanning each mix payload rather than from a stored back-reference:
+   * `EventRecord.mixIds` is only populated by legacy migration, so trusting it would
+   * leave an artist page empty for every mix that arrived through import or
+   * enrichment. The scan answers "which sets did this artist play on" from the same
+   * source of truth the mix detail page renders.
+   */
+  listRelatedMixes(entityId: RecordId): CatalogRecord[];
   findByProvider(ref: ProviderRef): RecordId | undefined;
   findBySource(ref: ProviderRef): RecordId | undefined;
   findNameCandidates(role: EntityRole, name: string): EntityRecord[];
@@ -334,6 +344,19 @@ export function openCatalog(path: string): CatalogRepository {
 
     listClaims(recordId) {
       return createTransaction(database).listClaims(recordId);
+    },
+
+    listRelatedMixes(entityId) {
+      const rows = database.prepare(`SELECT r.id, r.kind, r.verification, r.revision, r.search_name, r.payload
+        FROM catalog_records r
+        WHERE r.kind = 'mix' AND r.verification <> 'proposed'
+        ORDER BY r.updated_at DESC, r.id`).all() as StoredRecord[];
+      const mixes: CatalogRecord[] = [];
+      for (const row of rows) {
+        const record = parseRecord(row);
+        if (record?.kind === 'mix' && record.people.some((person) => person.entityId === entityId)) mixes.push(record);
+      }
+      return mixes;
     },
 
     getReview(id) {
