@@ -252,6 +252,23 @@ export async function handleCatalogRoute(context: CatalogRouteContext, request: 
     return true;
   }
 
+  const evidenceMatch = path.match(/^\/api\/catalog\/records\/([^/]+)\/evidence$/);
+  if (request.method === 'GET' && evidenceMatch) {
+    const record = context.repository.getRecord(recordId(evidenceMatch[1]));
+    if (!record || (record.verification === 'proposed' && !context.auth.authenticate(request))) {
+      sendJson(response, 404, { error: 'Catalog record not found' });
+      return true;
+    }
+    // Evidence explains a record's own provenance, so it is public wherever the
+    // record itself is: a public reader must be able to see why a field holds its
+    // value without holding a curator session.
+    sendJson(response, 200, {
+      recordId: record.id,
+      evidence: context.repository.listClaims(record.id)
+    });
+    return true;
+  }
+
   const recordMatch = path.match(/^\/api\/catalog\/records\/([^/]+)$/);
   if (request.method === 'GET' && recordMatch) {
     const record = context.repository.getRecord(recordId(recordMatch[1]));

@@ -2,6 +2,7 @@ import {
   CatalogPageSchema,
   CatalogRecordSchema,
   EnrichmentReportSchema,
+  FieldEvidenceListSchema,
   ImportCandidateSchema,
   ImportResultSchema,
   MigrationResultSchema,
@@ -9,6 +10,7 @@ import {
   type CatalogPage,
   type CatalogRecord,
   type EnrichmentReport,
+  type FieldEvidenceList,
   type ImportCandidate,
   type ImportResult,
   type IndexKind,
@@ -62,6 +64,14 @@ export const catalogApi = {
 
   async getRecord(id: RecordId): Promise<CatalogRecord> {
     return CatalogRecordSchema.parse(await request(`/catalog/records/${encodeURIComponent(id)}`));
+  },
+
+  /**
+   * Field-level provenance for one record. Public wherever the record itself is
+   * public, so a reader can see why a value is selected without a curator session.
+   */
+  async getEvidence(id: RecordId): Promise<FieldEvidenceList> {
+    return FieldEvidenceListSchema.parse(await request(`/catalog/records/${encodeURIComponent(id)}/evidence`));
   },
 
   async getReview(): Promise<ReviewItem[]> {

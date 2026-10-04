@@ -9,6 +9,7 @@ import type { MixRecord } from '@syco23/catalog-domain';
 import { openCatalog } from './repository.js';
 import { createCuratorAuth, hashCuratorPassword } from '../auth/curator.js';
 import { handleCatalogRoute } from './routes.js';
+import { applyClaims } from './merge.js';
 
 const timestamp = '2026-10-03T12:00:00.000Z';
 
@@ -234,6 +235,56 @@ test('curator waveform upload persists PNG bytes and public media GET serves the
     else process.env.CORS_ORIGIN = priorOrigin;
     if (priorMediaPath === undefined) delete process.env.CATALOG_MEDIA_PATH;
     else process.env.CATALOG_MEDIA_PATH = priorMediaPath;
+    repo.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('field evidence is public and explains why a selected value holds its field', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'syco23-catalog-evidence-'));
+  const repo = openCatalog(join(directory, 'catalog.sqlite'));
+  const previousOrigin = process.env.CORS_ORIGIN;
+  process.env.CORS_ORIGIN = 'http://localhost:5173';
+  try {
+    repo.transaction((tx) => {
+      tx.saveRecord(mix());
+      tx.addProviderSource(mix().id, { provider: 'youtube', resourceType: 'video', externalId: 'video-1', url: 'https://www.youtube.com/watch?v=video-1' });
+    });
+    const auth = createCuratorAuth(repo, hashCuratorPassword('private-local-password'));
+    const context = { repository: repo, auth };
+
+    // A confirmed identity with a linked source fills a missing description directly.
+    applyClaims(repo, [{
+      targetRecordId: mix().id,
+      field: 'description',
+      value: 'Confirmed from the linked source',
+      provider: { provider: 'youtube', resourceType: 'video', externalId: 'video-1' },
+      sourceUrl: 'https://www.youtube.com/watch?v=video-1',
+      observedAt: timestamp,
+      evidence: 'direct',
+      matchExplanation: 'Linked source identity with compatible duration'
+    }]);
+
+    // A public reader may see why a field holds its value without a curator session.
+    const publicResponse = response();
+    await handleCatalogRoute(context, request('GET', `/api/catalog/records/${mix().id}/evidence`), publicResponse.res);
+    assert.equal(publicResponse.result.status, 200);
+    const body = JSON.parse(publicResponse.result.body ?? '{}');
+    assert.equal(body.recordId, mix().id);
+    const selected = body.evidence.find((item: { disposition: string }) => item.disposition === 'selected');
+    assert.ok(selected, 'the selected claim is returned');
+    assert.equal(selected.claim.field, 'description');
+    assert.equal(selected.claim.value, 'Confirmed from the linked source');
+    assert.equal(selected.claim.provider.provider, 'youtube');
+
+    // A proposed record is not public, and neither is its evidence.
+    repo.transaction((tx) => tx.saveRecord({ ...mix(), id: 'mix_01J9CATALOGUE00000000000022', title: 'Proposal', verification: 'proposed' }));
+    const hidden = response();
+    await handleCatalogRoute(context, request('GET', '/api/catalog/records/mix_01J9CATALOGUE00000000000022/evidence'), hidden.res);
+    assert.equal(hidden.result.status, 404);
+  } finally {
+    if (previousOrigin === undefined) delete process.env.CORS_ORIGIN;
+    else process.env.CORS_ORIGIN = previousOrigin;
     repo.close();
     rmSync(directory, { recursive: true, force: true });
   }

@@ -182,6 +182,27 @@ export const ReviewItemSchema = z.object({
   currentValue: z.unknown().optional()
 }).strict();
 
+export const ClaimDispositionSchema = z.enum(['selected', 'corroborated', 'pending', 'rejected']);
+
+/**
+ * A stored claim together with what the merge policy did with it. This is what lets
+ * the detail view answer "why does this field hold this value?" instead of only
+ * showing a bare evidence id: a selected value can cite its direct source, a
+ * corroborated one names the agreeing source, and a rejected one stays visible as a
+ * decision rather than silently disappearing.
+ */
+export const FieldEvidenceSchema = z.object({
+  id: RecordIdSchema,
+  fingerprint: z.string().min(1).max(200),
+  claim: FieldClaimSchema,
+  disposition: ClaimDispositionSchema
+}).strict();
+
+export const FieldEvidenceListSchema = z.object({
+  recordId: RecordIdSchema,
+  evidence: z.array(FieldEvidenceSchema)
+}).strict();
+
 export const ProviderMetadataSchema = z.object({
   provider: ProviderRefSchema,
   sourceUrl: httpUrlSchema,
@@ -279,3 +300,6 @@ export type EnrichmentReport = z.infer<typeof EnrichmentReportSchema>;
 export type MigrationResult = z.infer<typeof MigrationResultSchema>;
 export type CatalogDetail = CatalogRecord;
 export type ReviewItem = z.infer<typeof ReviewItemSchema>;
+export type ClaimDisposition = z.infer<typeof ClaimDispositionSchema>;
+export type FieldEvidence = z.infer<typeof FieldEvidenceSchema>;
+export type FieldEvidenceList = z.infer<typeof FieldEvidenceListSchema>;

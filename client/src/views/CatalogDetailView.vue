@@ -6,6 +6,8 @@ import { useCatalogStore } from '../catalog/store';
 import ArtworkFrame from '../components/ArtworkFrame.vue';
 import WaveformStrip from '../components/WaveformStrip.vue';
 import DuplicateMerge from '../components/DuplicateMerge.vue';
+import CatalogEditor from '../components/CatalogEditor.vue';
+import FieldEvidence from '../components/FieldEvidence.vue';
 import { createWaveformJob, getWaveformJob } from '../services/api';
 
 const route = useRoute();
@@ -13,8 +15,6 @@ const catalog = useCatalogStore;
 const record = shallowRef<CatalogRecord>();
 const linkedEntities = shallowRef<EntityRecord[]>([]);
 const linkedEvents = shallowRef<EventRecord[]>([]);
-const draftName = shallowRef('');
-const saving = shallowRef(false);
 const enriching = shallowRef(false);
 const analyzing = shallowRef(false);
 const analysisProgress = shallowRef(0);
@@ -59,7 +59,6 @@ const heroAsset = computed(() => {
   if (record.value.kind === 'entity') return record.value.assets.find((asset) => ['artist-portrait', 'crew-logo', 'label-logo'].includes(asset.role));
   return record.value.assets.find((asset) => asset.role === 'event-flyer');
 });
-const editableField = computed(() => record.value?.kind === 'mix' ? 'title' : record.value?.kind === 'entity' ? 'displayName' : 'name');
 const dateLabel = computed(() => {
   if (!record.value) return 'DATE NOT RECORDED';
   if (record.value.kind === 'mix') return record.value.recordingDate?.value ?? 'DATE NOT RECORDED';
@@ -80,7 +79,6 @@ async function loadRecord(id: string) {
   try {
     const current = await catalog.loadDetail(id as RecordId);
     record.value = current;
-    draftName.value = current.kind === 'mix' ? current.title : current.kind === 'entity' ? current.displayName : current.name;
     if (current.kind === 'mix') {
       const [entities, events] = await Promise.all([
         Promise.all(current.people.map((person) => catalog.loadDetail(person.entityId).catch(() => undefined))),
@@ -89,26 +87,14 @@ async function loadRecord(id: string) {
       linkedEntities.value = entities.filter((item): item is EntityRecord => item?.kind === 'entity');
       linkedEvents.value = events.filter((item): item is EventRecord => item?.kind === 'event');
     }
+    // Evidence is best-effort: the record still renders without it.
+    await catalog.loadEvidence(current.id as RecordId);
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : 'Record could not be loaded';
   }
 }
 
 watch(recordId, (id) => { if (id) void loadRecord(id); }, { immediate: true });
-
-async function saveName() {
-  if (!record.value || !editableField.value || saving.value || !draftName.value.trim()) return;
-  saving.value = true;
-  error.value = '';
-  try {
-    const updated = await catalog.updateRecord(record.value.id, { [editableField.value]: draftName.value.trim() }, record.value.revision);
-    record.value = updated;
-  } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : 'Changes were not saved';
-  } finally {
-    saving.value = false;
-  }
-}
 
 /**
  * After a merge the survivor holds a new revision, so the record is reloaded rather
@@ -120,6 +106,15 @@ async function onMerged(merged: CatalogRecord) {
     await loadRecord(merged.id as string);
   } catch {
     record.value = merged;
+  }
+}
+
+/** A committed edit advances the revision, so the record and its evidence reload. */
+async function onFieldSaved(saved: CatalogRecord) {
+  try {
+    await loadRecord(saved.id as string);
+  } catch {
+    record.value = saved;
   }
 }
 
@@ -218,13 +213,18 @@ async function runWaveformAnalysis() {
     <p v-if="error" class="catalog-error" role="alert">{{ error }}</p>
 
     <div v-if="catalog.state.authenticated" class="panel catalog-editor">
-      <div class="panel-head"><span>CURATOR / REV {{ record.revision }}</span><b>RECORD NAME</b></div>
-      <form @submit.prevent="saveName">
-        <label :for="`record-name-${record.id}`">{{ editableField }}</label>
-        <input :id="`record-name-${record.id}`" v-model="draftName" maxlength="500" required />
-        <button class="btn btn--primary" type="submit" :disabled="saving || draftName.trim() === title"><q-icon name="mdi-content-save-outline" /> {{ saving ? 'Saving…' : 'Save change' }}</button>
-      </form>
+      <div class="panel-head"><span>CURATOR / REV {{ record.revision }}</span><b>EDIT FIELDS</b></div>
+      <p class="catalog-editor__note">
+        Only fields of this record type are editable. Each save is checked against revision
+        {{ record.revision }}, so a change made elsewhere in another session is refused instead of overwriting it.
+      </p>
+      <CatalogEditor :record="record" @saved="onFieldSaved" />
     </div>
+
+    <section class="panel">
+      <div class="panel-head"><span>PROVENANCE</span><b>{{ catalog.state.evidence.length }} CLAIM{{ catalog.state.evidence.length === 1 ? '' : 'S' }}</b></div>
+      <FieldEvidence :evidence="catalog.state.evidence" :selected-evidence="record.selectedEvidence" />
+    </section>
 
     <div v-if="catalog.state.authenticated && duplicateCandidates.length" class="panel catalog-editor">
       <div class="panel-head"><span>DUPLICATE CANDIDATES</span><b>{{ duplicateCandidates.length }} SHARED NAME</b></div>

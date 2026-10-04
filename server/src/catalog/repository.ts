@@ -26,6 +26,7 @@ export interface CatalogTransaction {
   getRecord(id: RecordId): CatalogRecord | undefined;
   getClaim(fingerprint: string): StoredClaim | undefined;
   getReview(id: RecordId): ReviewItem | undefined;
+  listClaims(recordId: RecordId): StoredClaim[];
   findByProvider(ref: ProviderRef): RecordId | undefined;
   saveRecord(record: CatalogRecord, expectedRevision?: number): CatalogRecord;
   addProviderSource(recordId: RecordId, ref: ProviderRef): void;
@@ -99,6 +100,7 @@ export interface CatalogRepository {
   getSession(tokenHash: string): CuratorSession | undefined;
   deleteSession(tokenHash: string): void;
   getMediaAsset(mediaId: RecordId): StoredMediaAsset | undefined;
+  listClaims(recordId: RecordId): StoredClaim[];
   getMigrationBatch(batchId: string): MigrationResult | undefined;
   saveMigrationBatch(result: MigrationResult): MigrationResult;
   startEnrichmentRun(run: EnrichmentRunInput): void;
@@ -162,6 +164,22 @@ function createTransaction(database: DatabaseSync): CatalogTransaction {
         id: string; fingerprint: string; claim_json: string; disposition: ClaimDisposition;
       } | undefined;
       return row ? { id: row.id, fingerprint: row.fingerprint, claim: JSON.parse(row.claim_json) as FieldClaim, disposition: row.disposition } : undefined;
+    },
+
+    listClaims(recordId) {
+      // A record's own provenance: every claim ever made about it and what happened to
+      // it. The detail view needs this to show why a selected field holds its value.
+      const rows = database.prepare(`SELECT c.id, c.fingerprint, c.claim_json, c.disposition
+        FROM field_claims c WHERE c.record_id = ? ORDER BY c.created_at DESC, c.id`)
+        .all(recordId) as Array<{
+          id: string; fingerprint: string; claim_json: string; disposition: ClaimDisposition;
+        }>;
+      return rows.map((row) => ({
+        id: row.id,
+        fingerprint: row.fingerprint,
+        claim: JSON.parse(row.claim_json) as FieldClaim,
+        disposition: row.disposition
+      }));
     },
 
     getReview(id) {
@@ -312,6 +330,10 @@ export function openCatalog(path: string): CatalogRepository {
     listReview() {
       const rows = database.prepare(`SELECT id FROM review_items WHERE state = 'pending' ORDER BY created_at, id`).all() as { id: string }[];
       return rows.map((row) => readReview(database, row.id)!).filter(Boolean);
+    },
+
+    listClaims(recordId) {
+      return createTransaction(database).listClaims(recordId);
     },
 
     getReview(id) {

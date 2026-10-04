@@ -2,6 +2,7 @@ import { reactive, readonly } from 'vue';
 import type {
   CatalogRecord,
   EnrichmentReport,
+  FieldEvidence,
   ImportCandidate,
   ImportResult,
   IndexKind,
@@ -17,6 +18,7 @@ export interface CatalogStoreState {
   indexKind: IndexKind;
   records: CatalogRecord[];
   detail?: CatalogRecord;
+  evidence: FieldEvidence[];
   review: ReviewItem[];
   loading: boolean;
   authenticated: boolean;
@@ -28,7 +30,7 @@ export interface CatalogStoreState {
 
 export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
   const state = reactive<CatalogStoreState>({
-    indexKind: 'mix', records: [], review: [], loading: false, authenticated: false,
+    indexKind: 'mix', records: [], evidence: [], review: [], loading: false, authenticated: false,
     page: 1, pageSize: 25, total: 0
   });
 
@@ -81,6 +83,22 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     } catch (error) {
       state.error = error instanceof Error ? error.message : 'Review queue could not be loaded';
       throw error;
+    }
+  }
+
+  /**
+   * Field provenance for the open record. A failure here is not fatal: the record is
+   * still worth showing, it just cannot explain why a field holds its value, so the
+   * detail view renders without evidence rather than refusing to load.
+   */
+  async function loadEvidence(id: RecordId) {
+    try {
+      const result = await gateway.getEvidence(id);
+      state.evidence = result.evidence;
+      return state.evidence;
+    } catch {
+      state.evidence = [];
+      return state.evidence;
     }
   }
 
@@ -224,6 +242,7 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     loadIndex,
     loadDetail,
     loadReview,
+    loadEvidence,
     checkSession,
     login,
     logout,

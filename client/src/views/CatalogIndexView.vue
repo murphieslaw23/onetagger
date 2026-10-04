@@ -5,6 +5,11 @@ import type { IndexKind } from '@syco23/catalog-domain';
 import CatalogRecordRow from '../catalog/CatalogRecordRow.vue';
 import { useCatalogStore } from '../catalog/store';
 
+// Short paths such as /artists pass their kind as a prop; /catalog/:kind uses the
+// parameter. Both must resolve to the same index, otherwise a shared short link
+// would silently show the mix index.
+const props = defineProps<{ kind?: IndexKind }>();
+
 const route = useRoute();
 const router = useRouter();
 const catalog = useCatalogStore;
@@ -19,9 +24,18 @@ const kinds: Array<{ id: IndexKind; label: string }> = [
 ];
 
 const kind = computed<IndexKind>(() => {
-  const requested = String(route.params.kind || 'mix');
+  const requested = String(props.kind || route.params.kind || 'mix');
   return kinds.some((item) => item.id === requested) ? requested as IndexKind : 'mix';
 });
+
+/** Public paths for the non-mix indexes, used for the tab links. */
+const shortPath: Record<IndexKind, string> = {
+  mix: '/',
+  artist: '/artists',
+  crew: '/crews',
+  label: '/labels',
+  event: '/events'
+};
 const title = computed(() => kinds.find((item) => item.id === kind.value)?.label ?? 'Mixes');
 const pageCount = computed(() => Math.max(1, Math.ceil(catalog.state.total / catalog.state.pageSize)));
 const rangeStart = computed(() => catalog.state.total ? (page.value - 1) * catalog.state.pageSize + 1 : 0);
@@ -61,7 +75,7 @@ onMounted(() => { void load(); });
     </header>
 
     <nav class="catalog-tabs" aria-label="Archive indexes">
-      <router-link v-for="item in kinds" :key="item.id" :to="item.id === 'mix' ? '/' : `/catalog/${item.id}`">
+      <router-link v-for="item in kinds" :key="item.id" :to="item.id === 'mix' ? '/' : shortPath[item.id]">
         {{ item.label }}
       </router-link>
     </nav>
