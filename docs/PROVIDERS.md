@@ -36,7 +36,23 @@ Used for entity enrichment rather than long-mix track matching. `DISCOGS_TOKEN` 
 
 Generate a personal API token under [Discogs Developer settings](https://www.discogs.com/settings/developers). A user OAuth flow is unnecessary for these public artist and label lookups.
 
-For already-linked entities, enrichment hydrates `/artists/{id}` or `/labels/{id}` directly. Shared profiles and role-specific images belong to the entity record and are visible from every linked mix. Matching names do not create a role or relationship. A Discogs label result alone does not establish that a label released or organized a particular mix.
+For already-linked entities, enrichment hydrates `/artists/{id}` or `/labels/{id}` directly. Shared profiles and role-specific images belong to the entity record and are visible from every linked mix — one entity update therefore appears on every mix that references it. Matching names do not create a role or relationship. A Discogs label result alone does not establish that a label released or organized a particular mix.
+
+## How provider data becomes canonical
+
+Provider output is never copied straight into a record. It arrives as a typed field claim naming the target record, the field, the normalized value, the provider, the source URL, the resource identity, when it was observed and why the match was made. A claim is then either selected, treated as agreeing with an existing value, or held in Review.
+
+- An authoritative field on a confirmed provider identity, or a curator decision, may fill a missing field.
+- An equivalent value corroborates the existing one instead of creating a second canonical value.
+- A material disagreement keeps the selected value and opens a field-level Review item holding both values and both sources.
+- Repeated evidence is identified by a stable fingerprint, so re-running enrichment does not duplicate pending items or resurrect previously rejected claims.
+- A provider failure leaves fields missing and is reported as a failure. It is never presented as "nothing new found".
+
+The claim behind each selected value is retrievable from the record's detail view, so a reader can check which source established a field and why a competing claim was not used.
+
+## Duplicate merges
+
+When a curator merges two confirmed duplicates, the survivor receives the other's source identities, claims, review decisions, media and relationships. Fields both records state differently become Review items rather than being resolved by the merge order, and the retired record's URL keeps resolving to the survivor. The same normalized name is only ever a *suggestion* for a merge — artists with the same name stay distinct unless a provider identity or the curator confirms otherwise.
 
 ## Private VPS-L setup
 

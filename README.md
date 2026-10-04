@@ -4,7 +4,11 @@ A long-form DJ/live-mix archive manager derived from the provider and review ide
 
 ## Product model
 
-SYCO23 Mixsets treats each recording as a durable `MixSet` with canonical artist / crew / event metadata, long-form duration, multiple public sources, field provenance, confidence and reviewable enrichment candidates.
+SYCO23 Mixsets is a shared archive of long-form DJ and live mixes. Each recording has one canonical mix entry, linked to independently browsable artist, crew, label and event indexes. Provider data becomes validated, attributable claims: a proven match fills a missing field, while a conflict or an uncertain identity stays in Review until a curator decides.
+
+The archive lives in the worker, not in the browser. The browser is a public reader and a curator control surface; it caches what it fetched and keeps a browser-local copy of your own library only until you have migrated it into the shared archive. A write that fails is never shown as committed.
+
+Fields are allowed to stay missing. The interface distinguishes missing, disputed and unavailable information and never reports that a record is complete just because an enrichment run found nothing new.
 
 The active web product no longer contains OneTagger's AutoTagger, QuickTag, track renamer, Spotify AudioFeatures or desktop WebView/socket flows.
 
@@ -38,7 +42,15 @@ API: http://localhost:8787
 
 The local API reads `.env` at startup. Set `CURATOR_PASSWORD_HASH` with a private password hash before using catalog write routes; generate it interactively with `python3 deploy/vps/setup_curator.py .env`. The setup routine never prints the password or hash.
 
-The shared catalog starts empty. Public provider metadata is fetched by the worker; curator login is required for imports and writes. The local setup routine writes only a salted password hash to `.env` and does not echo the password.
+The shared catalog starts empty. Public provider metadata is fetched by the worker; curator login is required for imports, edits, enrichment and review decisions.
+
+## Browsing and curating
+
+- `/` lists mixes; `/artists`, `/crews`, `/labels` and `/events` list the other indexes. Each supports search and pagination.
+- A mix detail links to its performers, crews, labels and events. An artist, crew or label page lists the mixes that reference it, and its sourced fields with the claim behind each selected value.
+- **Enrich missing fields** runs every usable provider capability against one record and reports what was applied, what agreed, what needs review and which fields remain missing. Runs are recorded: an interrupted run is visible and retryable.
+- **Review** shows field conflicts and uncertain identities across all index types, with the current and proposed value, the source link and why the match was proposed.
+- **Merge duplicates** compares two confirmed records side by side before confirming. Fields both records state differently stay in Review instead of being resolved by merge order, and the duplicate's old link keeps working.
 
 ## Validation
 
@@ -48,7 +60,11 @@ pnpm test
 pnpm build
 ```
 
-`pnpm test` runs the shared-domain, client API/store and server suites. The SQLite Node API currently emits Node's experimental SQLite warning on Node 22; production is pinned to Node 22.23.3.
+`pnpm test` runs the shared-domain, client API/store, server and deployment suites (108 tests: 5 domain, 24 client, 75 server, 4 deployment). The SQLite Node API emits Node's experimental SQLite warning on Node 22; production is pinned to Node 22.23.3.
+
+## Verification status
+
+Local gates (typecheck, tests, build) pass. Production has **not** been deployed: the worker still runs an older commit, and the rollout is blocked on a privately configured curator hash and the persistent data volume. See [docs/PRODUCTION_VERIFICATION.md](docs/PRODUCTION_VERIFICATION.md) for what has and has not been exercised in a browser or against the live host.
 
 ## Architecture
 
