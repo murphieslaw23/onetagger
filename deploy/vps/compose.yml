@@ -1,0 +1,62 @@
+name: syco23-mixsets
+
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: server/Dockerfile
+    image: syco23-mixsets-api:${MIXSETS_IMAGE_TAG:-local}
+    container_name: syco23-mixsets-api
+    restart: unless-stopped
+    volumes:
+      - mixsets_data:/app/data
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 0.75
+    stop_grace_period: 30s
+    environment:
+      PORT: 8787
+      NODE_ENV: production
+      CATALOG_DB_PATH: /app/data/catalog.sqlite
+      CURATOR_PASSWORD_HASH: ${CURATOR_PASSWORD_HASH:?Configure with python3 setup_curator.py}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://mixsets.syco23.org,https://syco23-mixsets.vercel.app,https://syco23-mixsets-system-corrupt.vercel.app}
+      SOUNDCLOUD_ACCESS_TOKEN: ${SOUNDCLOUD_ACCESS_TOKEN:-}
+      SOUNDCLOUD_CLIENT_ID: ${SOUNDCLOUD_CLIENT_ID:-}
+      SOUNDCLOUD_CLIENT_SECRET: ${SOUNDCLOUD_CLIENT_SECRET:-}
+      DISCOGS_TOKEN: ${DISCOGS_TOKEN:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+    ports:
+      - "127.0.0.1:8793:8787"
+    networks:
+      - proxy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8787/api/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  proxy:
+    external: true
+    name: syco23-ftm_default
+
+volumes:
+  mixsets_data:
