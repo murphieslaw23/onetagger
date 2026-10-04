@@ -12,11 +12,15 @@ export async function handleAuthRoute(context: AuthRouteContext, request: Incomi
   const path = request.url?.split('?')[0];
   if (request.method === 'GET' && path === '/api/auth/session') {
     const actor: CuratorActor | undefined = context.auth.authenticate(request);
-    sendJson(response, 200, { authenticated: Boolean(actor) });
+    sendJson(response, 200, { authenticated: Boolean(actor), authDisabled: context.auth.disabled });
     return true;
   }
 
   if (request.method === 'POST' && path === '/api/auth/login') {
+    if (context.auth.disabled) {
+      sendJson(response, 200, { authenticated: true, authDisabled: true });
+      return true;
+    }
     if (!isAllowedOrigin(request)) {
       sendJson(response, 403, { error: 'Origin is not allowed' });
       return true;
