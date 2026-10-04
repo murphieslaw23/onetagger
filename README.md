@@ -64,7 +64,7 @@ pnpm build
 
 ## Verification status
 
-Local gates (typecheck, tests, build) pass. Production has **not** been deployed: the worker still runs an older commit, and the rollout is blocked on a privately configured curator hash and the persistent data volume. See [docs/PRODUCTION_VERIFICATION.md](docs/PRODUCTION_VERIFICATION.md) for what has and has not been exercised in a browser or against the live host.
+The current backend is deployed and healthy on IONOS VPS-L at code revision `eded9b3`, with persistent catalog storage. The user-selected `AUTH_MODE=off` is synchronized from Vercel at deployment time; `VITE_AUTH_MODE=off` controls the preview UI. Typecheck, build and all 112 tests pass. The matching Vercel preview is READY; the shared catalog starts empty and browser-local libraries require explicit migration. See [docs/PRODUCTION_VERIFICATION.md](docs/PRODUCTION_VERIFICATION.md) for fresh runtime evidence, remaining limits and the earlier verification record.
 
 ## Architecture
 
