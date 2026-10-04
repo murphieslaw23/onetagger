@@ -50,11 +50,14 @@ function cookie(value: string, maxAge: number): string {
   return `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
 }
 
-export function createCuratorAuth(repository: CatalogRepository, passwordHash: string) {
+export function createCuratorAuth(repository: CatalogRepository, passwordHash: string, mode: string = process.env.AUTH_MODE ?? 'on') {
+  if (mode !== 'on' && mode !== 'off') throw new Error('AUTH_MODE must be on or off');
   const attempts = new Map<string, { count: number; resetAt: number }>();
 
   return {
+    mode,
     login(password: string, clientAddress = 'unknown'): string {
+      if (mode === 'off') return cookie('', 0);
       if (!passwordHash.startsWith('scrypt$')) throw new AuthError('Curator authentication is not configured', 503);
       const now = Date.now();
       const entry = attempts.get(clientAddress);
@@ -81,6 +84,7 @@ export function createCuratorAuth(repository: CatalogRepository, passwordHash: s
     },
 
     authenticate(request: IncomingMessage): CuratorActor | undefined {
+      if (mode === 'off') return { sessionId: 'auth-off' };
       const token = requestCookie(request);
       if (!token) return undefined;
       const hash = tokenHash(token);

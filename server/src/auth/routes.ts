@@ -12,13 +12,17 @@ export async function handleAuthRoute(context: AuthRouteContext, request: Incomi
   const path = request.url?.split('?')[0];
   if (request.method === 'GET' && path === '/api/auth/session') {
     const actor: CuratorActor | undefined = context.auth.authenticate(request);
-    sendJson(response, 200, { authenticated: Boolean(actor) });
+    sendJson(response, 200, { authenticated: Boolean(actor), mode: context.auth.mode });
     return true;
   }
 
   if (request.method === 'POST' && path === '/api/auth/login') {
     if (!isAllowedOrigin(request)) {
       sendJson(response, 403, { error: 'Origin is not allowed' });
+      return true;
+    }
+    if (context.auth.mode === 'off') {
+      sendJson(response, 200, { authenticated: true, mode: 'off' });
       return true;
     }
     try {
@@ -41,7 +45,7 @@ export async function handleAuthRoute(context: AuthRouteContext, request: Incomi
       sendJson(response, 403, { error: 'Origin is not allowed' });
       return true;
     }
-    sendJson(response, 200, { authenticated: false }, { 'set-cookie': context.auth.logout(request) });
+    sendJson(response, 200, { authenticated: context.auth.mode === 'off', mode: context.auth.mode }, { 'set-cookie': context.auth.logout(request) });
     return true;
   }
 

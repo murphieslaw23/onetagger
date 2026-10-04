@@ -66,3 +66,14 @@ test('logout revokes the session and clears the cookie', () => {
     assert.equal(auth.authenticate(request), undefined);
   });
 });
+test('explicit off mode permits anonymous curator access and on remains the default', () => {
+  withCatalog((_path, repo) => {
+    const request = { headers: {} } as IncomingMessage;
+    assert.equal(createCuratorAuth(repo, '').authenticate(request), undefined);
+    const open = createCuratorAuth(repo, '', 'off');
+    assert.deepEqual(open.authenticate(request), { sessionId: 'auth-off' });
+    assert.match(open.logout(request), /Max-Age=0/);
+    assert.deepEqual(open.authenticate(request), { sessionId: 'auth-off' });
+    assert.throws(() => createCuratorAuth(repo, '', 'false'), /AUTH_MODE/);
+  });
+});

@@ -29,15 +29,15 @@
         <div class="top-line__right">
           <span>{{ runtimeLabel }}</span>
           <i :data-state="state.apiState"></i>
-          <button class="curator-status" type="button" @click="toggleCurator">
+          <button class="curator-status" type="button" @click="toggleCurator" :disabled="authOff">
             <q-icon :name="catalog.state.authenticated ? 'mdi-account-check-outline' : 'mdi-account-lock-outline'" />
-            {{ catalog.state.authenticated ? 'CURATOR' : 'PUBLIC' }}
+            {{ authOff ? 'OPEN ACCESS' : catalog.state.authenticated ? 'CURATOR' : 'PUBLIC' }}
           </button>
         </div>
       </div>
       <div class="mobile-runtime" :data-state="state.apiState">
         <span></span>{{ runtimeLabel }}
-        <router-link to="/login">{{ catalog.state.authenticated ? 'CURATOR' : 'PUBLIC' }}</router-link>
+        <router-link to="/login">{{ authOff ? 'OPEN ACCESS' : catalog.state.authenticated ? 'CURATOR' : 'PUBLIC' }}</router-link>
       </div>
       <router-view />
     </main>
@@ -67,6 +67,7 @@ const {
   setApiState,
 } = useMixStore();
 const catalog = useCatalogStore;
+const authOff = import.meta.env.VITE_AUTH_MODE === 'off';
 const router = useRouter();
 const reviewCount = computed(() => catalog.state.review.length);
 
@@ -108,6 +109,7 @@ onMounted(async () => {
 });
 
 async function toggleCurator() {
+  if (authOff) return;
   if (!catalog.state.authenticated) {
     await router.push('/login');
     return;

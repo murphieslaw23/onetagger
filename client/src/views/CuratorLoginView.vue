@@ -6,6 +6,7 @@ import { useCatalogStore } from '../catalog/store';
 const route = useRoute();
 const router = useRouter();
 const catalog = useCatalogStore;
+const authOff = import.meta.env.VITE_AUTH_MODE === 'off';
 const password = shallowRef('');
 const error = shallowRef('');
 const busy = shallowRef(false);
@@ -59,15 +60,15 @@ async function continueToArchive() {
   <section class="page curator-page">
     <header class="page-hero page-hero--compact">
       <div>
-        <p class="kicker">CURATOR ACCESS / PRIVATE SESSION</p>
+        <p class="kicker">{{ authOff ? 'ARCHIVE ACCESS / OPEN MODE' : 'CURATOR ACCESS / PRIVATE SESSION' }}</p>
         <h1>Archive control.</h1>
-        <p class="hero-copy">Public records remain readable. A curator session is needed to import, enrich, edit and resolve evidence.</p>
+        <p class="hero-copy">{{ authOff ? 'The archive is open for importing, enriching and editing without signing in.' : 'Public records remain readable. A curator session is needed to import, enrich, edit and resolve evidence.' }}</p>
       </div>
     </header>
 
     <section v-if="catalog.state.authenticated" class="panel curator-panel">
-      <div class="panel-head"><span>SESSION ACTIVE</span><b>CURATOR</b></div>
-      <p class="curator-panel__copy">You are signed in. Provider credentials remain on the archive worker.</p>
+      <div class="panel-head"><span>{{ authOff ? 'OPEN ACCESS' : 'SESSION ACTIVE' }}</span><b>{{ authOff ? 'NO LOGIN REQUIRED' : 'CURATOR' }}</b></div>
+      <p class="curator-panel__copy">{{ authOff ? 'No sign-in is required. Provider credentials remain on the archive worker.' : 'You are signed in. Provider credentials remain on the archive worker.' }}</p>
       <p v-if="migrationResult" class="migration-result" role="status">{{ migrationResult }}</p>
       <div class="curator-actions">
         <button v-if="migrationAvailable" class="btn btn--primary" :disabled="busy" @click="migrate">
