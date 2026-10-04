@@ -16,17 +16,18 @@ Node 22.23.3 worker
   -> SQLite repository (one VPS worker, WAL, foreign keys)
   -> durable enrichment-run log (migration 006)
   -> persistent media directory (validated waveform PNGs)
-  -> in-memory discovery and waveform job queues (bounded concurrency)
+  -> in-memory discovery queue, SQLite-backed waveform analysis runs
+  -> curator-gated discovery, provider health, artwork and direct-waveform routes
 ```
 
 ## Persistence boundaries
 
 - `packages/domain` owns strict canonical/provider/import schemas, normalization, field validation and shared missing-field definitions.
-- `server/src/catalog/repository.ts` owns records, provider/resource identities, typed relationships, aliases, claims, decisions, sessions, migration batches, enrichment runs and media references.
+- `server/src/catalog/repository.ts` owns records, provider/resource identities, typed relationships, aliases, claims, decisions, sessions, migration batches, media references, durable enrichment and analysis runs, and the normalized read projection (`mixes`, `events`, `entity_details`, `entity_aliases`, `record_terms`, `record_links`, `record_assets`, `selected_evidence`) which is re-synced on every commit.
 - Schema changes are ordered SQL files in `server/src/catalog/migrations/`, applied by `PRAGMA user_version`. Adding one requires both the `.sql` file and an entry in the array in `database.ts`.
 - Network requests and audio decoding happen before short synchronous SQLite transactions.
 - SQLite uses a persistent Docker volume at `/app/data`; online backups are verified before restore, and restore targets must be new paths.
-- Browser state is a cache only. A mutation updates UI state after the API returns its committed canonical record. Local records remain available until migration is acknowledged.
+- Browser state is a cache only. A mutation updates UI state after the API returns its committed canonical record. The app never deletes the browser's legacy `syco23.mixsets.library` key: the curator can dismiss or retry migration and the local copy is only ever read.
 
 ## Identity and evidence
 
@@ -49,8 +50,10 @@ Every enrichment pass writes a run row before provider work starts, so a crash l
 
 ## Access and operations
 
-Public readers can list and open confirmed records, read field evidence and follow entity/event links. Proposed identity details are hidden from public index and detail routes. Curator writes require a scrypt password hash, rate-limited login, hashed server-side session tokens, an HTTP-only cookie, and an exact configured origin. Development permits only the two local Vite origins; production has no implicit origin.
+Public readers can list and open confirmed records, read field evidence and follow entity/event links. Proposed identity details are hidden from public index and detail routes. Curator writes require a scrypt password hash, rate-limited login, hashed server-side session tokens, an HTTP-only cookie, and an exact configured origin. Outside production `localhost:5173` and `127.0.0.1:5173` are added to the configured origin list; any other origin (for example the Playwright dev server on port 15173) must be listed in `CORS_ORIGIN` explicitly. Production has no implicit origin.
 
 Domain errors are mapped to HTTP status by an explicit allow-list of message prefixes rather than a broad pattern, so an unrecognized internal fault becomes a generic 500 instead of leaking a path or SQL fragment in a 400 body.
 
-Discovery jobs and waveform jobs remain in memory and are scoped to the single running worker. Restarting the worker preserves catalog data, claims, decisions, media and enrichment history, but active jobs are not durable. Multi-worker deployment is not supported until those queues are persisted.
+A single-user local mode exists for the operator's own machine. Setting `CURATOR_AUTH_DISABLED=true` makes every request authenticate as the curator, so the GUI never blocks on a login. It is opt-in, is ignored whenever `NODE_ENV=production`, and logs a warning on start. The deployed worker sets `NODE_ENV: production` and requires `CURATOR_PASSWORD_HASH`, so it cannot be opened by this variable. The exact-origin check and all input validation continue to apply in this mode; only authentication is skipped.
+
+Restarting the worker preserves catalog data, claims, decisions, media and enrichment history. The discovery job queue remains in memory and is scoped to the single running worker. Waveform analysis runs are persisted per mix record in `analysis_runs`, are read back after a restart, and any run left `queued` or `running` by a previous process is marked `interrupted` on boot rather than being silently lost. The run itself is not resumable. Multi-worker deployment is not supported until the discovery queue is persisted.

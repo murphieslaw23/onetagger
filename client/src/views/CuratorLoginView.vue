@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, shallowRef } from 'vue';
+import type { MigrationResult } from '@syco23/catalog-domain';
 import { useRoute, useRouter } from 'vue-router';
 import { useCatalogStore } from '../catalog/store';
 
@@ -11,10 +12,11 @@ const error = shallowRef('');
 const busy = shallowRef(false);
 const migrationAvailable = shallowRef(false);
 const migrationResult = shallowRef('');
+const migrationDetails = shallowRef<MigrationResult>();
 
 onMounted(() => {
   migrationAvailable.value = typeof window !== 'undefined' && Boolean(window.localStorage.getItem('syco23.mixsets.library'));
-  void catalog.checkSession();
+  void catalog.checkSession().catch((caught) => { error.value = caught instanceof Error ? caught.message : 'Session could not be checked'; });
 });
 
 async function login() {
@@ -38,10 +40,11 @@ async function migrate() {
   error.value = '';
   try {
     const result = await catalog.migrateLocalLibrary();
+    migrationDetails.value = result;
     migrationResult.value = result
       ? `${result.imported} imported · ${result.existing} already present · ${result.rejected} excluded or invalid. Your browser copy remains unchanged.`
       : 'No local library was found to migrate.';
-    migrationAvailable.value = false;
+    migrationAvailable.value = Boolean(result?.rejected || result?.outcomes?.some((outcome) => ['partial', 'rejected'].includes(outcome.status)));
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : 'Migration did not complete. Your browser copy is still available; retry with the same batch.';
   } finally {
@@ -49,6 +52,10 @@ async function migrate() {
   }
 }
 
+async function logout() {
+  error.value = '';
+  try { await catalog.logout(); } catch (caught) { error.value = caught instanceof Error ? caught.message : 'Logout did not complete'; }
+}
 async function continueToArchive() {
   const destination = typeof route.query.redirect === 'string' ? route.query.redirect : '/';
   await router.replace(destination.startsWith('/') ? destination : '/');
@@ -68,8 +75,17 @@ async function continueToArchive() {
     <section v-if="catalog.state.authenticated" class="panel curator-panel">
       <div class="panel-head"><span>SESSION ACTIVE</span><b>CURATOR</b></div>
       <p class="curator-panel__copy">You are signed in. Provider credentials remain on the archive worker.</p>
-      <p v-if="migrationResult" class="migration-result" role="status">{{ migrationResult }}</p>
+      <p v-if="error" class="catalog-error" role="alert">{{ error }}</p>
+      <p v-if="migrationResult" data-testid="migration-results" class="migration-result" role="status">{{ migrationResult }}</p>
+      <ul v-if="migrationDetails?.outcomes?.length" class="migration-outcomes">
+        <li v-for="outcome in migrationDetails.outcomes" :key="outcome.legacyId">
+          <strong>{{ outcome.legacyId }} · {{ outcome.status }}</strong>
+          <router-link v-if="outcome.recordId" :to="`/catalog/records/${encodeURIComponent(outcome.recordId)}`">Open shared record</router-link>
+          <p v-for="message in outcome.errors" :key="message">{{ message }}</p>
+        </li>
+      </ul>
       <div class="curator-actions">
+        <button class="btn" :disabled="busy" @click="logout">Sign out</button>
         <button v-if="migrationAvailable" class="btn btn--primary" :disabled="busy" @click="migrate">
           <q-icon :name="busy ? 'mdi-loading mdi-spin' : 'mdi-database-import-outline'" />
           Migrate this browser’s library

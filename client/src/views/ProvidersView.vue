@@ -53,7 +53,7 @@
 
         <template v-if="setupProvider === 'soundcloud'">
           <h2>SoundCloud search requires Artist Pro</h2>
-          <p class="provider-setup__note">No Artist Pro? Open an indexed mix with missing artwork and choose <strong>Add cover from public link</strong>. Paste its SoundCloud track URL, preview the cover, and confirm it belongs to that mix. This works without API credentials. Automatic SoundCloud search remains unavailable.</p>
+          <p class="provider-setup__note">No Artist Pro? The worker can still resolve a cover for an exact public SoundCloud track URL without API credentials, via the curator-gated <code>POST /api/soundcloud/artwork</code> endpoint. There is no detail-view control for this yet. Automatic SoundCloud search remains unavailable.</p>
           <ol>
             <li>Sign in to SoundCloud and <a href="https://developers.soundcloud.com/docs/api/register-app" target="_blank" rel="noopener noreferrer">follow its app registration guide</a>. SoundCloud currently requires Artist Pro to create API credentials.</li>
             <li>Create or open your app and copy its Client ID and Client Secret. Public search uses an app token; there is no separate Mixsets account login.</li>

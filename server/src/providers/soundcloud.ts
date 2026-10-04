@@ -97,7 +97,12 @@ export class SoundCloudProvider implements DiscoveryProvider {
 
   async search(query: SearchQuery, signal?: AbortSignal): Promise<MixCandidate[]> {
     const q = query.q || query.artist || '';
-    if (!q) return [];
+    if (!q && !query.url) return [];
+    if (query.url && !process.env.SOUNDCLOUD_ACCESS_TOKEN && !(process.env.SOUNDCLOUD_CLIENT_ID && process.env.SOUNDCLOUD_CLIENT_SECRET)) {
+      const result=await this.resolvePublicArtwork(query.url,signal);
+      return [{provider:this.id,title:result.title??'SoundCloud recording',artists:[],crews:[],artwork:result.artworkUrl?[result.artworkUrl]:[],
+        source:{provider:this.id,url:result.sourceUrl},confidence:.9,reasons:['Known public artwork capability; metadata search unavailable'],raw:{}}];
+    }
     const params = new URLSearchParams({
       q,
       limit: String(Math.min(query.limit ?? 50, 100)),
@@ -105,27 +110,31 @@ export class SoundCloudProvider implements DiscoveryProvider {
       linked_partitioning: 'true',
       'duration[from]': String(query.minDurationMs ?? 30 * 60_000),
     });
-    const payload = await api<{ collection?: Array<Record<string, any>> }>('/tracks', params, signal);
+    const payload = query.url
+      ? {collection:[await api<Record<string,any>>('/resolve',new URLSearchParams({url:query.url}),signal)]}
+      : await api<{ collection?: Array<Record<string, any>> }>('/tracks', params, signal);
     const tracks = payload.collection ?? [];
     const candidates = tracks.map((track): MixCandidate => {
       const user = track.user || {};
       const scored = confidenceScore({
         query: q,
         title: track.title,
-        artist: user.username,
+        artist: track.metadata_artist || track.publisher_metadata?.artist || undefined,
         durationExpectedMs: query.durationExpectedMs,
         durationActualMs: track.duration,
       });
       return {
         provider: this.id,
         title: track.title || 'Untitled SoundCloud mix',
-        artists: user.username ? [user.username] : [],
+        artists: typeof (track.metadata_artist || track.publisher_metadata?.artist) === 'string' ? [track.metadata_artist || track.publisher_metadata.artist] : [],
+        uploader: user.username,
+        uploadedAt: track.created_at,
         crews: [],
         durationMs: track.duration,
         // created_at is the upload date, not necessarily the mix recording date.
         description: track.description,
         genres: [track.genre, ...(Array.isArray(track.tag_list) ? track.tag_list : String(track.tag_list || '').split(/\s+/))].filter(Boolean),
-        artwork: track.artwork_url ? [track.artwork_url] : [],
+        artwork: typeof track.artwork_url === 'string' && /^https:\/\/[^/]+\.sndcdn\.com\/artworks-/.test(track.artwork_url) ? [track.artwork_url] : [],
         source: { provider: this.id, url: track.permalink_url, externalId: track.urn || String(track.id || '') },
         externalIds: { soundcloud: track.urn || String(track.id || '') },
         confidence: scored.score,

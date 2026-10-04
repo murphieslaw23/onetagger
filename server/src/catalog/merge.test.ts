@@ -74,7 +74,8 @@ test('parsed claims wait for curation and accepted decisions enforce the current
     assert.equal(report.reviewed, 1);
     const item = repo.listReview()[0];
     const accepted = decideReview(repo, item.id, 'accept', item.recordRevision, 'curator-session-1');
-    assert.equal(accepted.state, 'accepted');
+    assert.equal(repo.getReview(item.id)?.state, 'accepted');
+    assert.equal(accepted.id,item.targetRecordId);
     const stored = repo.getRecord(pending.targetRecordId);
     assert.equal(stored?.kind === 'mix' ? stored.title : undefined, 'Parsed title');
   });
@@ -91,7 +92,7 @@ test('stale review decisions fail and rejected claims do not reappear', () => {
     });
     assert.throws(() => decideReview(repo, item.id, 'accept', item.recordRevision, 'curator-session-1'), /revision/i);
     const currentItem = refreshReview(repo, item.id);
-    assert.equal(currentItem.recordRevision, 2);
+    assert.equal(currentItem.recordRevision, repo.getRecord(proposal.targetRecordId)!.revision);
     decideReview(repo, currentItem.id, 'reject', currentItem.recordRevision, 'curator-session-1');
     assert.equal(applyClaims(repo, [proposal]).reviewed, 0);
     assert.equal(repo.listReview().length, 0);

@@ -5,7 +5,8 @@ Date: 2026-10-04 (local checks re-run; browser and VPS findings unchanged from 2
 ## Local implementation checks
 
 - `pnpm typecheck`: passed for shared domain, Vue client and Node server.
-- `pnpm test`: passed, **108 tests total (5 domain, 24 client, 75 server, 4 deployment)**. The deployment suite covers the private provider-setup routine: atomic secret-file replacement, duplicate secret keys, rejection of unsafe `.env` characters and owner-only permissions.
+- `pnpm test`: passed, 152 tests total (7 domain, 42 client and 103 server). Coverage includes schema validation, provider/resource identity, persistence/reopen, claims/review revisions, curator sessions, CORS, import retries, migration, waveform media, SQLite backup/restore, provider selection, HTTP validation edges and local MP3 tag writing.
+- `pnpm test:deployment`: passed, 8 tests covering the VPS deployment package.
 - `pnpm build`: passed for client and server. Rollup reports removable `@__PURE__` comment-position warnings from Zod; output is produced successfully.
 
 Coverage now includes, beyond the earlier schema / provider / migration / media / backup set:
@@ -30,6 +31,8 @@ Smoke tests below were run on 2026-10-03 and were **not repeated** after the 202
 ## Production status
 
 Deployment was requested and the VPS was checked read-only through `ssh ionos_vps_l`. At verification time the API was healthy at commit `7368973`, with Discogs ready. **No deployment has been performed.** The deployed commit is still `7368973`, so the catalog work committed after it is not live.
+
+Before rollout, set `CURATOR_PASSWORD_HASH` privately with `deploy/vps/setup_curator.py`, deploy the pinned Node 22.23.3 image and persistent `/app/data` volume, verify public reads/authenticated writes/CORS, perform and verify an online backup, deploy the frontend, migrate each real browser library, and test after worker recreation. The discovery job queue is still in-memory and requires a single worker; waveform analysis runs are persisted per mix in `analysis_runs` and interrupted runs are surfaced rather than lost.
 
 Unchanged blocking prerequisites:
 

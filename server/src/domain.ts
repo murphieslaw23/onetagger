@@ -14,6 +14,14 @@ export interface EntityRef {
   url?: string;
   imageUrl?: string;
   profile?: string;
+  aliases?: string[];
+  realName?: string;
+  websiteUrls?: string[];
+  aliasRefs?: EntityRef[];
+  groups?: EntityRef[];
+  members?: EntityRef[];
+  parent?: EntityRef;
+  subLabels?: EntityRef[];
 }
 
 export interface MixCandidate {
@@ -23,6 +31,9 @@ export interface MixCandidate {
   crews: string[];
   durationMs?: number;
   recordedAt?: string;
+  uploader?: string;
+  uploadedAt?: string;
+  fieldEvidence?: Record<string, 'direct' | 'parsed' | 'analysis'>;
   description?: string;
   genres?: string[];
   artwork?: string[];

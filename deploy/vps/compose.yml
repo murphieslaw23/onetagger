@@ -26,6 +26,7 @@ services:
       PORT: 8787
       NODE_ENV: production
       CATALOG_DB_PATH: /app/data/catalog.sqlite
+      CURATOR_COOKIE_SAME_SITE: ${CURATOR_COOKIE_SAME_SITE:-none}
       CURATOR_PASSWORD_HASH: ${CURATOR_PASSWORD_HASH:?Configure with python3 setup_curator.py}
       CORS_ORIGIN: ${CORS_ORIGIN:-https://mixsets.syco23.org,https://syco23-mixsets.vercel.app,https://syco23-mixsets-system-corrupt.vercel.app}
       SOUNDCLOUD_ACCESS_TOKEN: ${SOUNDCLOUD_ACCESS_TOKEN:-}

@@ -20,3 +20,9 @@ test('SoundCloud source lookup accepts track cover and rejects avatar fallback',
   await assert.rejects(() => provider.lookupArtwork('https://example.com/artist/long-mix'), /invalid/);
   await assert.rejects(() => provider.lookupArtwork('http://soundcloud.com.evil.test/artist/long-mix'), /invalid/);
 });
+
+test('SoundCloud explicit metadata artist stays separate from uploader',async(context)=>{
+ const previous=process.env.SOUNDCLOUD_ACCESS_TOKEN;process.env.SOUNDCLOUD_ACCESS_TOKEN='test-token';
+ context.mock.method(globalThis,'fetch',async()=>Response.json({collection:[{id:42,title:'Long mix',duration:3600000,user:{username:'Archive Channel'},metadata_artist:'DJ Live',permalink_url:'https://soundcloud.com/archive/long-mix',artwork_url:'https://i1.sndcdn.com/avatars-bad.jpg'}]}));
+ try{const result=await new SoundCloudProvider().search({q:'Long mix'});assert.deepEqual(result[0].artists,['DJ Live']);assert.equal(result[0].uploader,'Archive Channel');assert.deepEqual(result[0].artwork,[]);}finally{if(previous===undefined)delete process.env.SOUNDCLOUD_ACCESS_TOKEN;else process.env.SOUNDCLOUD_ACCESS_TOKEN=previous;}
+});

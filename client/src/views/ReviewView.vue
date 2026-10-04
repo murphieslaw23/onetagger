@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, shallowRef } from 'vue';
+import { onMounted, shallowRef, ref } from 'vue';
 import type { CatalogRecord, ReviewItem } from '@syco23/catalog-domain';
 import { useCatalogStore } from '../catalog/store';
 
@@ -11,7 +11,7 @@ interface ReviewRow {
 }
 
 const catalog = useCatalogStore;
-const rows = shallowRef<ReviewRow[]>([]);
+const rows = ref<ReviewRow[]>([]);
 const loading = shallowRef(false);
 const error = shallowRef('');
 
@@ -36,6 +36,13 @@ function recordName(record?: CatalogRecord) {
   return record.kind === 'mix' ? record.title : record.kind === 'entity' ? record.displayName : record.name;
 }
 
+function duplicateLink(row: ReviewRow) {
+  const value = row.item.claim.value;
+  const duplicateId = value && typeof value === 'object' && 'recordId' in value && typeof value.recordId === 'string' ? value.recordId : undefined;
+  if (!duplicateId) return undefined;
+  const kind = row.record?.kind === 'mix' ? 'mix' : row.record?.kind === 'entity' ? 'entity' : 'event';
+  return `/${kind}/${encodeURIComponent(row.item.targetRecordId)}?duplicate=${encodeURIComponent(duplicateId)}`;
+}
 function format(value: unknown) {
   if (value === undefined || value === null || value === '') return 'No selected value';
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
@@ -45,7 +52,8 @@ async function decide(row: ReviewRow, decision: 'accept' | 'reject') {
   row.busy = true;
   row.error = undefined;
   try {
-    await catalog.decideReview(row.item.id, decision, row.item.recordRevision);
+    const committed = await catalog.decideReview(row.item.id, decision, row.item.recordRevision);
+    for (const other of rows.value) if (other.item.targetRecordId === committed.id) other.record = committed;
     rows.value = rows.value.filter((item) => item.item.id !== row.item.id);
   } catch (caught) {
     row.error = caught instanceof Error ? caught.message : 'Decision was not saved';
@@ -112,8 +120,9 @@ onMounted(() => { void load(); });
           <p v-if="row.error" class="catalog-error" role="alert">{{ row.error }}</p>
           <div class="review-actions">
             <button v-if="row.error?.toLowerCase().includes('revision') || (row.record && row.record.revision !== row.item.recordRevision)" class="btn" :disabled="row.busy" @click="refresh(row)"><q-icon name="mdi-refresh" /> Refresh evidence</button>
-            <button class="btn" :disabled="row.busy || Boolean(row.record && row.record.revision !== row.item.recordRevision)" @click="decide(row, 'reject')">Reject</button>
-            <button class="btn btn--primary" :disabled="row.busy || Boolean(row.record && row.record.revision !== row.item.recordRevision)" @click="decide(row, 'accept')"><q-icon name="mdi-check" /> Accept field</button>
+            <button class="btn" :disabled="row.busy || !row.record || Boolean(row.record && row.record.revision !== row.item.recordRevision)" @click="decide(row, 'reject')">Reject</button>
+            <router-link v-if="row.item.field === 'possibleDuplicate' && duplicateLink(row)" class="btn btn--primary" :to="duplicateLink(row)!">Preview duplicate</router-link>
+            <button v-else-if="row.item.field !== 'possibleDuplicate'" class="btn btn--primary" :disabled="row.busy || !row.record || Boolean(row.record && row.record.revision !== row.item.recordRevision)" @click="decide(row, 'accept')"><q-icon name="mdi-check" /> Accept field</button>
           </div>
         </div>
       </article>
