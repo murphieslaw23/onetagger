@@ -1,64 +1,69 @@
-import { computed, reactive, watch } from 'vue';
-import { mixes as initialMixes, providerHealth } from '../domain/fixtures';
-import type { EntityRef, ImportJob, MixCandidate, MixSet, ProviderId } from '../domain/types';
+import { computed, reactive } from 'vue';
+import type { ImportJob, ProviderId } from '../domain/types';
 import {
-  enrichMixMetadata,
+  getDiscoveryJobs,
   type ApiDiscoveryJob,
-  type ApiEnrichmentResult,
-  type ApiMixCandidate,
   type ApiProviderHealth,
 } from '../services/api';
 
-type ApiState = 'checking' | 'online' | 'offline';
+export type ApiState = 'checking' | 'online' | 'offline';
 
-function loadMixes(): MixSet[] {
-  if (typeof window === 'undefined') return structuredClone(initialMixes);
-  try {
-    const saved = window.localStorage.getItem('syco23.mixsets.library');
-    if (!saved) return structuredClone(initialMixes);
-    const parsed = JSON.parse(saved) as MixSet[];
-    const repaired = parsed.map((mix) => ({
-      ...mix,
-      artwork: Array.isArray(mix.artwork) ? mix.artwork : [],
-      sources: Array.isArray(mix.sources) ? mix.sources : [],
-      candidates: Array.isArray(mix.candidates) ? mix.candidates : [],
-      provenance: Array.isArray(mix.provenance) ? mix.provenance : [],
-      entities: Array.isArray(mix.entities) ? mix.entities : [],
-      status: mix.status === 'enriching' ? 'review' : mix.status,
-    }));
-    window.localStorage.setItem('syco23.mixsets.library', JSON.stringify(repaired));
-    return repaired;
-  } catch {
-    return structuredClone(initialMixes);
-  }
+/**
+ * Presentation-only provider metadata. The worker owns live health (`state`, `detail`,
+ * `checkedAt`); these static fields only describe how each provider is used and how it
+ * is authenticated, so no runtime state is duplicated or invented here.
+ */
+const providerPresentation: Record<string, { name: string; mode: 'discover' | 'enrich' | 'both'; auth: 'none' | 'required' | 'recommended' }> = {
+  freeteknomusic: { name: 'Freeteknomusic', mode: 'both', auth: 'none' },
+  archiveorg: { name: 'Archive.org', mode: 'both', auth: 'none' },
+  soundcloud: { name: 'SoundCloud', mode: 'both', auth: 'required' },
+  youtube: { name: 'YouTube', mode: 'both', auth: 'required' },
+  hearthis: { name: 'hearthis.at', mode: 'both', auth: 'none' },
+  discogs: { name: 'Discogs', mode: 'enrich', auth: 'recommended' }
+};
+
+export interface ProviderView extends ApiProviderHealth {
+  name: string;
+  mode: 'discover' | 'enrich' | 'both';
+  auth: 'none' | 'required' | 'recommended';
+  /** Alias of `checkedAt`, kept for the provider view templates. */
+  lastCheck: string;
 }
 
-function calculateCompleteness(mix: MixSet): number {
-  const checks = [
-    Boolean(mix.title),
-    Boolean(mix.artists.length && !mix.artists.every((artist) => artist.toLowerCase() === 'unknown')),
-    Boolean(mix.crews.length),
-    Boolean(mix.durationMs),
-    Boolean(mix.recordedAt),
-    Boolean(mix.description),
-    Boolean(mix.genres.length || mix.styles.length),
-    Boolean(mix.artwork.length),
-    Boolean(mix.event || mix.venue),
-    Boolean(mix.location),
-  ];
-  return Number((checks.filter(Boolean).length / checks.length).toFixed(2));
-}
+/**
+ * Runtime-only worker state: provider health and discovery job progress.
+ *
+ * This store deliberately holds no catalog records. The server catalog is the single
+ * source of truth and is read through `client/src/catalog/store`. Nothing here is
+ * persisted to browser storage, so a failed or offline write can never look committed
+ * and a second browser never sees a private, unsaved copy of the archive.
+ */
+const state = reactive({
+  jobs: [] as ImportJob[],
+  providers: [] as ProviderView[],
+  apiState: 'checking' as ApiState
+});
 
-function normalized(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-function sameList(left: string[] = [], right: string[] = []) {
-  return normalized(left.join(' ')) === normalized(right.join(' '));
-}
-
-function safeId(value: string) {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 120) || crypto.randomUUID();
+/**
+ * Merges worker health with the static presentation metadata so every known provider is
+ * listed even when the worker reports nothing for it. An unreported provider is shown as
+ * unavailable rather than silently omitted, so the UI never implies full coverage.
+ */
+function toProviderViews(health: ApiProviderHealth[]): ProviderView[] {
+  const reported = new Map<string, ApiProviderHealth>(health.map((entry) => [entry.id as string, entry]));
+  return Object.entries(providerPresentation).map(([id, presentation]) => {
+    const entry = reported.get(id);
+    return {
+      id: id as ProviderId,
+      name: presentation.name,
+      mode: presentation.mode,
+      auth: presentation.auth,
+      state: entry?.state ?? 'offline',
+      detail: entry?.detail ?? 'No health report from the worker',
+      checkedAt: entry?.checkedAt ?? new Date(0).toISOString(),
+      lastCheck: entry?.checkedAt ?? new Date(0).toISOString()
+    };
+  });
 }
 
 function jobLabel(job: ApiDiscoveryJob): string {
@@ -66,417 +71,59 @@ function jobLabel(job: ApiDiscoveryJob): string {
   return String(query.url || query.q || query.artist || 'manual discovery');
 }
 
-const state = reactive({
-  mixes: loadMixes(),
-  jobs: [] as ImportJob[],
-  providers: structuredClone(providerHealth),
-  apiState: 'checking' as ApiState,
-  query: '',
-  source: 'all' as ProviderId | 'all',
-  status: 'all',
-  selected: new Set<string>(),
-});
-
-if (typeof window !== 'undefined') {
-  watch(() => state.mixes, (mixes) => {
-    window.localStorage.setItem('syco23.mixsets.library', JSON.stringify(mixes));
-  }, { deep: true });
+/**
+ * Normalizes a worker job into the shape the views render. The worker remains
+ * authoritative for progress; this only adapts its payload.
+ */
+function toImportJob(job: ApiDiscoveryJob): ImportJob {
+  return {
+    id: job.id,
+    provider: job.provider as ProviderId,
+    label: jobLabel(job),
+    state: job.state,
+    progress: job.progress,
+    scanned: job.scanned,
+    found: job.found,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    ...(job.error ? { error: job.error } : {})
+  } as ImportJob;
 }
 
 export function useMixStore() {
-  const filtered = computed(() => {
-    const q = state.query.trim().toLowerCase();
-    return state.mixes
-      .filter((mix) => {
-        const haystack = [mix.title, ...mix.artists, ...mix.crews, mix.event, mix.location].filter(Boolean).join(' ').toLowerCase();
-        const queryMatch = !q || haystack.includes(q);
-        const sourceMatch = state.source === 'all' || mix.sources.some((source) => source.provider === state.source);
-        const statusMatch = state.status === 'all' || mix.status === state.status;
-        return queryMatch && sourceMatch && statusMatch;
-      })
-      .sort((a, b) => b.confidence - a.confidence || b.updatedAt.localeCompare(a.updatedAt));
-  });
-
-  const reviewCount = computed(() => state.mixes.reduce((sum, mix) => {
-    const pending = mix.candidates.filter((candidate) => candidate.state === 'pending').length;
-    return sum + pending + (mix.status === 'review' && pending === 0 ? 1 : 0);
-  }, 0));
-
   const runningJobs = computed(() => state.jobs.filter((job) => job.state === 'running' || job.state === 'queued').length);
 
-  function findMix(id: string) {
-    return state.mixes.find((mix) => mix.id === id);
-  }
-
-  function findMixBySource(url: string) {
-    return state.mixes.find((mix) => mix.sources.some((source) => source.url === url));
-  }
-
-  function findCandidateMatch(candidate: ApiMixCandidate) {
-    const direct = findMixBySource(candidate.source.url)
-      || state.mixes.find((mix) => candidate.source.externalId
-        && mix.sources.some((source) => source.externalId === candidate.source.externalId));
-    if (direct) return direct;
-
-    return state.mixes.find((mix) => {
-      const titleMatch = normalized(mix.title) === normalized(candidate.title || '');
-      const artistMatch = sameList(mix.artists, candidate.artists || []);
-      if (!titleMatch || !artistMatch) return false;
-      if (!mix.durationMs || !candidate.durationMs) return true;
-      const delta = Math.abs(mix.durationMs - candidate.durationMs) / Math.max(mix.durationMs, candidate.durationMs);
-      return delta <= 0.08;
-    });
-  }
-
-  function refreshCompleteness(mix: MixSet) {
-    mix.completeness = calculateCompleteness(mix);
-  }
-
-  function useLinkedCover(mix: MixSet, provider: ProviderId, sourceUrl: string, artworkUrl: string) {
-    if (mix.artwork.length) throw new Error('This mix already has cover artwork');
-    const sourcePath = new URL(sourceUrl).pathname.replace(/\/$/, '');
-    const linkedMix = state.mixes.find((item) => item.sources.some((source) => {
-      if (source.provider !== provider) return false;
-      try { return new URL(source.url).pathname.replace(/\/$/, '') === sourcePath; } catch { return false; }
-    }));
-    if (linkedMix && linkedMix.id !== mix.id) throw new Error('That track is already linked to another mix');
-    if (!linkedMix && !mix.sources.some((source) => source.provider === provider && source.url === sourceUrl)) mix.sources.push({ provider, url: sourceUrl });
-    mix.artwork.push({ url: artworkUrl, source: provider, kind: 'cover' });
-    mix.provenance.push({
-      provider,
-      field: 'artwork',
-      confidence: 0.99,
-      observedAt: new Date().toISOString(),
-      sourceUrl,
-    });
-    mix.updatedAt = new Date().toISOString();
-    refreshCompleteness(mix);
-  }
-
-  function applyCandidate(mix: MixSet, candidate: MixCandidate) {
-    const patch = candidate.fields;
-    for (const [key, value] of Object.entries(patch)) {
-      if (key === 'externalIds' && value && typeof value === 'object') {
-        Object.assign(mix.externalIds, value);
-      } else if (key === 'entities' && Array.isArray(value)) {
-        for (const entity of value as EntityRef[]) {
-          const index = mix.entities.findIndex((current) => current.kind === entity.kind && normalized(current.name) === normalized(entity.name));
-          if (index >= 0) mix.entities[index] = entity;
-          else mix.entities.push(entity);
-        }
-      } else if (value !== undefined && key !== 'id' && key !== 'candidates') {
-        (mix as unknown as Record<string, unknown>)[key] = value;
-      }
-    }
-    candidate.state = 'accepted';
-    mix.confidence = Math.max(mix.confidence, candidate.confidence);
-    mix.updatedAt = new Date().toISOString();
-    refreshCompleteness(mix);
-    if (!mix.candidates.some((item) => item.state === 'pending')) mix.status = 'ready';
-  }
-
-  function rejectCandidate(candidate: MixCandidate, mix?: MixSet) {
-    candidate.state = 'rejected';
-    if (mix) {
-      mix.updatedAt = new Date().toISOString();
-      if (!mix.candidates.some((item) => item.state === 'pending') && mix.confidence >= 0.82) mix.status = 'ready';
-    }
-  }
-
-  function markReviewed(mix: MixSet) {
-    if (mix.candidates.some((candidate) => candidate.state === 'pending')) return false;
-    mix.status = 'ready';
-    mix.updatedAt = new Date().toISOString();
-    return true;
-  }
-
-  function addDiscoveredCandidate(candidate: ApiMixCandidate): MixSet {
-    const existing = findCandidateMatch(candidate);
-
-    if (existing) {
-      if (!existing.sources.some((source) => source.provider === candidate.source.provider && source.url === candidate.source.url)) {
-        existing.sources.push(candidate.source);
-        existing.updatedAt = new Date().toISOString();
-      }
-      return existing;
-    }
-
-    const now = new Date().toISOString();
-    const idSuffix = safeId(candidate.source.externalId || crypto.randomUUID());
-    const mix: MixSet = {
-      id: `${candidate.provider}-${idSuffix}`,
-      title: candidate.title || 'Untitled mix',
-      artists: candidate.artists?.length ? candidate.artists : ['Unknown artist'],
-      crews: candidate.crews || [],
-      recordedAt: candidate.recordedAt,
-      durationMs: candidate.durationMs || 0,
-      description: candidate.description,
-      genres: candidate.genres || [],
-      styles: [],
-      artwork: (candidate.artwork || []).filter(Boolean).map((url) => ({
-        url,
-        source: candidate.provider,
-        kind: 'cover' as const,
-      })),
-      sources: [candidate.source],
-      externalIds: candidate.externalIds || {},
-      entities: [],
-      candidates: [],
-      confidence: candidate.confidence,
-      completeness: 0,
-      provenance: [{
-        provider: candidate.provider,
-        field: 'identity',
-        confidence: candidate.confidence,
-        observedAt: now,
-        sourceUrl: candidate.source.url,
-      }],
-      rawSource: candidate.raw,
-      status: candidate.confidence >= 0.82 ? 'ready' : 'review',
-      createdAt: now,
-      updatedAt: now,
-    };
-    refreshCompleteness(mix);
-    state.mixes.unshift(mix);
-    return state.mixes[0];
-  }
-
-  function applyEnrichmentResult(mix: MixSet, result: ApiEnrichmentResult, previousStatus: MixSet['status'] = mix.status) {
-    const filled = new Set<string>();
-    const patch = result.patch;
-    let reviewCandidatesAdded = 0;
-    const queueClaim = (id: string, fields: Partial<MixSet>, reason: string, provider: ProviderId = 'discogs') => {
-      if (mix.candidates.some((candidate) => candidate.id === id)) return;
-      mix.candidates.push({
-        id,
-        provider,
-        confidence: 0.88,
-        reasons: [reason],
-        fields,
-        state: 'pending',
-      });
-      reviewCandidatesAdded += 1;
-    };
-
-    const assignMissing = (field: 'durationMs' | 'recordedAt' | 'description' | 'genres', value: unknown) => {
-      const current = mix[field] as unknown;
-      const missing = current === undefined || current === '' || current === 0 || (Array.isArray(current) && !current.length);
-      if (!missing || value === undefined || value === '' || (Array.isArray(value) && !value.length)) return;
-      (mix as unknown as Record<string, unknown>)[field] = value;
-      filled.add(field);
-    };
-
-    assignMissing('durationMs', patch.durationMs);
-    assignMissing('recordedAt', patch.recordedAt);
-    assignMissing('description', patch.description);
-    assignMissing('genres', patch.genres);
-
-    if (!mix.artwork.length && patch.artwork?.length) {
-      mix.artwork = patch.artwork.map((item) => ({
-        url: item.url,
-        source: item.provider,
-        kind: item.kind,
-      }));
-      filled.add('artwork');
-    }
-
-    for (const source of patch.sources || []) {
-      const idClaim = Object.entries(patch.externalIds || {}).find(([, id]) => id === source.externalId);
-      if (idClaim && mix.externalIds[idClaim[0]] && mix.externalIds[idClaim[0]] !== idClaim[1]) continue;
-      if (!mix.sources.some((existing) => existing.provider === source.provider && existing.url === source.url)) {
-        mix.sources.push(source);
-        filled.add('sources');
-      }
-    }
-
-    if (patch.externalIds) {
-      for (const [key, id] of Object.entries(patch.externalIds)) {
-        if (mix.externalIds[key] && mix.externalIds[key] !== id) {
-          const provider: ProviderId = key === 'soundcloud' ? 'soundcloud' : key === 'archiveorg' ? 'archiveorg' : key === 'youtube' ? 'youtube' : key === 'hearthis' ? 'hearthis' : 'discogs';
-          queueClaim(`enrich-${provider}-id-${safeId(key)}`, {
-            externalIds: { [key]: id },
-          }, `${provider} ${key} differs from the canonical ID`, provider);
-        } else if (!mix.externalIds[key]) {
-          mix.externalIds[key] = id;
-          filled.add('externalIds');
-        }
-      }
-    }
-
-    for (const entity of result.entities) {
-      const names = entity.kind === 'crew' ? mix.crews : mix.artists;
-      if (!names.some((name) => normalized(name) === normalized(entity.name))) continue;
-      const index = mix.entities.findIndex((existing) => existing.kind === entity.kind && normalized(existing.name) === normalized(entity.name));
-      const current = index >= 0 ? mix.entities[index] : undefined;
-      const idKey = entity.kind === 'artist' ? 'discogsArtist' : 'discogsCrew';
-      const idConflict = Boolean(entity.externalId && mix.externalIds[idKey] && mix.externalIds[idKey] !== entity.externalId);
-      const profileConflict = Boolean(current?.profile && entity.profile && current.profile !== entity.profile);
-      const imageConflict = Boolean(current?.imageUrl && entity.imageUrl && current.imageUrl !== entity.imageUrl);
-      const merged: EntityRef = {
-        ...entity,
-        ...current,
-        profile: current?.profile || entity.profile,
-        imageUrl: current?.imageUrl || entity.imageUrl,
-        url: current?.url || entity.url,
-      };
-      if (idConflict || (current?.externalId && entity.externalId && current.externalId !== entity.externalId) || profileConflict || imageConflict) {
-        const proposed = { ...entity, ...current, externalId: entity.externalId, profile: entity.profile || current?.profile, imageUrl: entity.imageUrl || current?.imageUrl, url: entity.url || current?.url };
-        queueClaim(`enrich-discogs-entity-${safeId(entity.kind + '-' + entity.name)}`, { entities: [proposed] },
-          `Discogs ${entity.kind} profile or identity differs from the canonical record`);
-      } else if (index < 0) {
-        mix.entities.push(merged);
-        filled.add('artist info');
-      } else if (JSON.stringify(current) !== JSON.stringify(merged)) {
-        mix.entities[index] = merged;
-        filled.add('artist info');
-      }
-    }
-
-    const observedAt = new Date().toISOString();
-    for (const item of result.provenance) {
-      if (!mix.provenance.some((existing) =>
-        existing.provider === item.provider
-        && existing.field === item.field
-        && existing.sourceUrl === item.sourceUrl,
-      )) {
-        mix.provenance.push({ ...item, observedAt });
-      }
-    }
-
-    for (const candidate of result.candidates) {
-      if (candidate.confidence < 0.7) continue;
-      const fields: Partial<MixSet> = {};
-      if (candidate.title && normalized(candidate.title) !== normalized(mix.title)) fields.title = candidate.title;
-      if (candidate.artists?.length && !sameList(candidate.artists, mix.artists)) fields.artists = candidate.artists;
-      if (candidate.recordedAt && mix.recordedAt && candidate.recordedAt !== mix.recordedAt) fields.recordedAt = candidate.recordedAt;
-      if (candidate.genres?.length && mix.genres.length && !sameList(candidate.genres, mix.genres)) fields.genres = candidate.genres;
-      if (candidate.description && mix.description && candidate.description !== mix.description) fields.description = candidate.description;
-      if (candidate.durationMs && mix.durationMs && Math.abs(candidate.durationMs - mix.durationMs) > 60_000) fields.durationMs = candidate.durationMs;
-      if (candidate.artwork?.length && mix.artwork.length && !mix.artwork.some((art) => candidate.artwork?.includes(art.url))) {
-        fields.artwork = candidate.artwork.map((url) => ({ url, source: candidate.provider, kind: 'cover' as const }));
-      }
-      if (!Object.keys(fields).length) continue;
-
-      const id = `enrich-${candidate.provider}-${safeId(candidate.source.externalId || candidate.source.url)}`;
-      if (mix.candidates.some((existing) => existing.id === id)) continue;
-      mix.candidates.push({
-        id,
-        provider: candidate.provider,
-        confidence: candidate.confidence,
-        reasons: candidate.reasons,
-        fields,
-        raw: candidate.raw,
-        state: 'pending',
-      });
-      reviewCandidatesAdded += 1;
-    }
-
-    refreshCompleteness(mix);
-    mix.updatedAt = observedAt;
-    const hasPendingConflicts = reviewCandidatesAdded > 0 || mix.candidates.some((candidate) => candidate.state === 'pending');
-    mix.status = hasPendingConflicts
-      ? 'review'
-      : previousStatus === 'ready' || mix.confidence >= 0.82
-        ? 'ready'
-        : 'review';
-
-    return {
-      filledFields: [...filled],
-      reviewCandidatesAdded,
-      attempted: result.attempted,
-      failures: result.failures,
-    };
-  }
-
-  async function enrichMixRecord(mix: MixSet) {
-    const previousStatus = mix.status;
-    mix.status = 'enriching';
-    mix.updatedAt = new Date().toISOString();
-    try {
-      const result = await enrichMixMetadata(mix);
-      return applyEnrichmentResult(mix, result, previousStatus);
-    } catch (error) {
-      mix.status = previousStatus === 'enriching' ? 'review' : previousStatus;
-      mix.updatedAt = new Date().toISOString();
-      throw error;
-    }
-  }
-
-  function syncApiJobs(jobs: ApiDiscoveryJob[]) {
-    state.jobs.splice(0, state.jobs.length, ...jobs.map((job): ImportJob => ({
-      id: job.id,
-      provider: job.provider,
-      label: jobLabel(job),
-      query: job.query || {},
-      state: job.state,
-      progress: job.progress,
-      scanned: job.scanned,
-      found: job.found,
-      createdAt: job.createdAt || new Date().toISOString(),
-      error: job.error,
-    })));
-  }
-
   function upsertApiJob(job: ApiDiscoveryJob) {
-    const next: ImportJob = {
-      id: job.id,
-      provider: job.provider,
-      label: jobLabel(job),
-      query: job.query || {},
-      state: job.state,
-      progress: job.progress,
-      scanned: job.scanned,
-      found: job.found,
-      createdAt: job.createdAt || new Date().toISOString(),
-      error: job.error,
-    };
-    const current = state.jobs.find((item) => item.id === job.id);
-    if (current) Object.assign(current, next);
-    else state.jobs.unshift(next);
+    const next = toImportJob(job);
+    const index = state.jobs.findIndex((item) => item.id === next.id);
+    if (index >= 0) state.jobs[index] = next;
+    else state.jobs = [next, ...state.jobs];
+  }
+
+  /** Replaces the local job list with the worker's current view. */
+  function syncApiJobs(jobs: ApiDiscoveryJob[]) {
+    state.jobs = jobs.map(toImportJob);
+  }
+
+  async function refreshJobs() {
+    state.jobs = (await getDiscoveryJobs()).map(toImportJob);
   }
 
   function updateProviderHealth(health: ApiProviderHealth[]) {
-    for (const item of health) {
-      const provider = state.providers.find((entry) => entry.id === item.id);
-      if (!provider) continue;
-      provider.state = item.state;
-      provider.detail = item.detail;
-      provider.lastCheck = item.checkedAt;
-    }
+    state.providers = toProviderViews(health);
   }
 
   function setApiState(value: ApiState) {
     state.apiState = value;
   }
 
-  function toggleSelected(id: string) {
-    state.selected.has(id) ? state.selected.delete(id) : state.selected.add(id);
-  }
-
-  function clearSelection() {
-    state.selected.clear();
-  }
-
   return {
     state,
-    filtered,
-    reviewCount,
     runningJobs,
-    findMix,
-    findMixBySource,
-    findCandidateMatch,
-    useLinkedCover,
-    applyCandidate,
-    rejectCandidate,
-    markReviewed,
-    addDiscoveredCandidate,
-    applyEnrichmentResult,
-    enrichMixRecord,
-    syncApiJobs,
     upsertApiJob,
+    syncApiJobs,
+    refreshJobs,
     updateProviderHealth,
-    setApiState,
-    toggleSelected,
-    clearSelection,
+    setApiState
   };
 }

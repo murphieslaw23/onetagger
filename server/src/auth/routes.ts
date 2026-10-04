@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { AuthError, type CuratorActor } from './curator.js';
 import type { createCuratorAuth } from './curator.js';
-import { applyCorsHeaders, HttpInputError, isAllowedOrigin, readJsonBody, sendJson } from '../http.js';
+import { applyCorsHeaders, HttpInputError, isAllowedOrigin, publicErrorMessage, readJsonBody, sendJson } from '../http.js';
 
 export interface AuthRouteContext {
   auth: ReturnType<typeof createCuratorAuth>;
@@ -31,7 +31,7 @@ export async function handleAuthRoute(context: AuthRouteContext, request: Incomi
       sendJson(response, 200, { authenticated: true }, { 'set-cookie': setCookie });
     } catch (error) {
       const status = error instanceof HttpInputError || error instanceof AuthError ? error.statusCode : 500;
-      sendJson(response, status, { error: error instanceof Error ? error.message : 'Login failed' });
+      sendJson(response, status, { error: publicErrorMessage(error, 'Login failed') });
     }
     return true;
   }

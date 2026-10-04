@@ -1,15 +1,35 @@
 import type { MixCandidate } from '../domain.js';
 
+/**
+ * File formats are technical noise and never carry identity.
+ * `live`, `dj` and `set` are meaningful descriptors ("Live at Wacken", "DJ Koalisson",
+ * "DJ set") and must survive normalization, because they distinguish one recording
+ * from another. Only the `mix` family describes the uploaded artifact rather than
+ * the recording, and is dropped in trailing position.
+ */
+const alwaysNoise = new Set(['mp3', 'flac', 'wav', 'ogg', 'aiff', 'm4a', 'aif', 'opus']);
+const trailingNoise = new Set(['mix', 'mixset', 'mixsets']);
+
 export function normalizeQuery(value = ''): string {
-  return value
+  const cleaned = value
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/https?:\/\/\S+/g, ' ')
-    .replace(/[_./\\()[\]{}|:+-]+/g, ' ')
-    .replace(/\b(mp3|flac|wav|ogg|aiff|m4a|mix|live|set|dj)\b/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/[_./\\()[\]{}|:+-]+/g, ' ');
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  const kept = tokens.filter((token, index) => {
+    if (alwaysNoise.has(token)) return false;
+    if (trailingNoise.has(token) && index === tokens.length - 1 && hasMeaningfulPrefix(tokens, index)) return false;
+    return true;
+  });
+  return kept.join(' ').trim();
+}
+
+function hasMeaningfulPrefix(tokens: string[], index: number): boolean {
+  // Only strip a trailing artifact word when something meaningful precedes it,
+  // so a title that is literally just "Mix" is not emptied out.
+  return tokens.slice(0, index).some((token) => !alwaysNoise.has(token) && !trailingNoise.has(token));
 }
 
 export function tokenSet(value = ''): Set<string> {
@@ -106,5 +126,27 @@ export function uniqueCandidates(candidates: MixCandidate[]): MixCandidate[] {
     const current = best.get(key);
     if (!current || candidate.confidence > current.confidence) best.set(key, candidate);
   }
-  return [...best.values()].sort((a, b) => b.confidence - a.confidence);
+  return [...best.values()].map(candidate => ({ ...candidate, raw: sanitizeProviderSnapshot(candidate.raw) as Record<string, unknown> })).sort((a, b) => b.confidence - a.confidence);
+}
+
+const credentialKey = /(?:authorization|password|secret|token|api[_-]?key|client[_-]?id)/i;
+export function sanitizeProviderSnapshot(value: unknown, depth = 0): unknown {
+  if (depth > 4) return undefined;
+  if (typeof value === 'string') {
+    let text = value.slice(0, 2000);
+    try { const url = new URL(text); for (const key of [...url.searchParams.keys()]) if (credentialKey.test(key) || key === 'key') url.searchParams.delete(key); text = url.toString(); } catch {}
+    for (const name of ['DISCOGS_TOKEN','YOUTUBE_API_KEY','SOUNDCLOUD_ACCESS_TOKEN','SOUNDCLOUD_CLIENT_SECRET','SOUNDCLOUD_CLIENT_ID']) {
+      const secret=process.env[name]; if (secret && secret.length >= 8) text=text.split(secret).join('[redacted]');
+    }
+    return text;
+  }
+  if (Array.isArray(value)) return value.slice(0,50).map(item=>sanitizeProviderSnapshot(item,depth+1));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).slice(0,50)
+    .filter(([key])=>!credentialKey.test(key)).map(([key,item])=>[key,sanitizeProviderSnapshot(item,depth+1)]));
+  return typeof value === 'number' && !Number.isFinite(value) ? undefined : value;
+}
+export function providerFailureMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const status = message.match(/(?:HTTP|API|search|entity|metadata|token)\s+(\d{3})/i)?.[1];
+  return status ? `Provider request returned HTTP ${status}; retry or check worker configuration` : 'Provider request failed; retry later';
 }

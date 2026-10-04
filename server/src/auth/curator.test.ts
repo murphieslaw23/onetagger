@@ -66,3 +66,7 @@ test('logout revokes the session and clears the cookie', () => {
     assert.equal(auth.authenticate(request), undefined);
   });
 });
+test('cross-site approved frontend sessions use secure cookies that browsers can send',()=>{
+ const oldEnv=process.env.NODE_ENV;const oldSite=process.env.CURATOR_COOKIE_SAME_SITE;process.env.NODE_ENV='production';process.env.CURATOR_COOKIE_SAME_SITE='none';
+ try{withCatalog((_path,repo)=>{const cookie=createCuratorAuth(repo,hashCuratorPassword('local-test-password')).login('local-test-password');assert.match(cookie,/SameSite=None/);assert.match(cookie,/Secure/);});}finally{if(oldEnv===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=oldEnv;if(oldSite===undefined)delete process.env.CURATOR_COOKIE_SAME_SITE;else process.env.CURATOR_COOKIE_SAME_SITE=oldSite;}
+});

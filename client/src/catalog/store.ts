@@ -9,13 +9,14 @@ import type {
   RecordId,
   ReviewItem
 } from '@syco23/catalog-domain';
-import { catalogApi, type IndexOptions } from './api';
+import { catalogApi, CatalogApiError, type IndexOptions } from './api';
 
 export type CatalogGateway = typeof catalogApi;
 
 export interface CatalogStoreState {
   indexKind: IndexKind;
   records: CatalogRecord[];
+  recordCache: Record<string, CatalogRecord>;
   detail?: CatalogRecord;
   review: ReviewItem[];
   loading: boolean;
@@ -28,18 +29,25 @@ export interface CatalogStoreState {
 
 export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
   const state = reactive<CatalogStoreState>({
-    indexKind: 'mix', records: [], review: [], loading: false, authenticated: false,
+    indexKind: 'mix', records: [], recordCache: {}, review: [], loading: false, authenticated: false,
     page: 1, pageSize: 25, total: 0
   });
 
+  let indexRequest = 0;
+  function fail(error: unknown, fallback: string) {
+    state.error = error instanceof Error ? error.message : fallback;
+    if (error instanceof CatalogApiError && error.status === 401) { state.authenticated = false; state.review = []; }
+  }
   function remember(record: CatalogRecord) {
     state.detail = record;
+    state.recordCache[record.id] = record;
     const index = state.records.findIndex((item) => item.id === record.id);
     if (index >= 0) state.records[index] = record;
     return record;
   }
 
   async function loadIndex(kind: IndexKind, options: IndexOptions = {}) {
+    const requestId = ++indexRequest;
     state.loading = true;
     state.error = undefined;
     state.indexKind = kind;
@@ -47,16 +55,18 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     state.pageSize = options.pageSize ?? 25;
     try {
       const result = await gateway.getIndex(kind, { ...options, page: state.page, pageSize: state.pageSize });
+      if (requestId !== indexRequest) return result;
       state.records = result.items;
+      for (const record of result.items) state.recordCache[record.id] = record;
       state.page = result.page;
       state.pageSize = result.pageSize;
       state.total = result.total;
       return result;
     } catch (error) {
-      state.error = error instanceof Error ? error.message : 'Catalog index could not be loaded';
+      if (requestId === indexRequest) fail(error, 'Catalog index could not be loaded');
       throw error;
     } finally {
-      state.loading = false;
+      if (requestId === indexRequest) state.loading = false;
     }
   }
 
@@ -66,7 +76,7 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     try {
       return remember(await gateway.getRecord(id));
     } catch (error) {
-      state.error = error instanceof Error ? error.message : 'Catalog record could not be loaded';
+      fail(error, 'Catalog record could not be loaded');
       throw error;
     } finally {
       state.loading = false;
@@ -79,7 +89,7 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
       state.review = await gateway.getReview();
       return state.review;
     } catch (error) {
-      state.error = error instanceof Error ? error.message : 'Review queue could not be loaded';
+      fail(error, 'Review queue could not be loaded');
       throw error;
     }
   }
@@ -114,7 +124,7 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
       remember(result.record);
       return result;
     } catch (error) {
-      state.error = error instanceof Error ? error.message : 'Import was not saved';
+      fail(error, 'Import was not saved');
       throw error;
     }
   }
@@ -127,7 +137,7 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
       await loadReview().catch(() => undefined);
       return report;
     } catch (error) {
-      state.error = error instanceof Error ? error.message : 'Enrichment failed';
+      fail(error, 'Enrichment failed');
       throw error;
     }
   }
@@ -142,7 +152,7 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     try {
       return remember(await gateway.updateRecord(id, patch, revision));
     } catch (error) {
-      state.error = error instanceof Error ? error.message : 'Changes were not saved';
+      fail(error, 'Changes were not saved');
       throw error;
     }
   }
@@ -152,12 +162,26 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     try {
       const item = await gateway.decideReview(id, decision, revision);
       state.review = state.review.filter((review) => review.id !== id);
-      await loadDetail(item.targetRecordId);
-      return item;
+      return remember(item);
     } catch (error) {
-      state.error = error instanceof Error ? error.message : 'Review decision was not saved';
+      fail(error, 'Review decision was not saved');
       throw error;
     }
+  }
+
+  async function createRecord(input: unknown) {
+    state.error = undefined;
+    try { return remember(await gateway.createRecord(input)); }
+    catch (error) { fail(error, 'Record was not created'); throw error; }
+  }
+  async function mergeRecords(survivor: RecordId, duplicate: RecordId, revisions: [number, number]) {
+    state.error = undefined;
+    try {
+      const record = await gateway.mergeRecords(survivor, duplicate, revisions);
+      state.records = state.records.filter((item) => item.id !== duplicate);
+      delete state.recordCache[duplicate];
+      return remember(record);
+    } catch (error) { fail(error, 'Duplicate merge was not saved'); throw error; }
   }
 
   async function refreshReview(id: RecordId) {
@@ -171,7 +195,8 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     if (typeof window === 'undefined') return undefined;
     const raw = window.localStorage.getItem('syco23.mixsets.library');
     if (!raw) return undefined;
-    const records = JSON.parse(raw) as unknown[];
+    const records: unknown = JSON.parse(raw);
+    if (!Array.isArray(records)) throw new Error('Local library must contain a list of records. Your browser copy remains unchanged.');
     const batchStorageKey = 'syco23.mixsets.migrationBatchId';
     const batchId = window.localStorage.getItem(batchStorageKey) || crypto.randomUUID();
     window.localStorage.setItem(batchStorageKey, batchId);
@@ -194,7 +219,16 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     const result = await gateway.migrate(batchId, recordsWithoutMedia);
     for (const asset of media) {
       const recordId = result.legacyIds[asset.legacyId];
-      if (recordId) await gateway.persistWaveform(recordId, asset.imageDataUrl, asset.sourceUrl);
+      if (recordId) {
+        try { remember(await gateway.persistWaveform(recordId, asset.imageDataUrl, asset.sourceUrl)); }
+        catch (error) {
+          const message = `Waveform was not stored: ${error instanceof Error ? error.message : String(error)}`;
+          result.outcomes ??= [];
+          const outcome = result.outcomes.find((item) => item.legacyId === asset.legacyId);
+          if (outcome) { outcome.status = 'partial'; outcome.errors.push(message); }
+          else result.outcomes.push({ legacyId: asset.legacyId, status: 'partial', recordId, errors: [message] });
+        }
+      }
     }
     return result;
   }
@@ -213,7 +247,9 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     updateRecord,
     decideReview,
     refreshReview,
-    migrateLocalLibrary
+    migrateLocalLibrary,
+    createRecord,
+    mergeRecords
   };
 }
 

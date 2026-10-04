@@ -46,8 +46,10 @@ function requestCookie(request: IncomingMessage): string | undefined {
 }
 
 function cookie(value: string, maxAge: number): string {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  return `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
+  const production = process.env.NODE_ENV === 'production';
+  const sameSite = production && process.env.CURATOR_COOKIE_SAME_SITE === 'none' ? 'None' : 'Lax';
+  const secure = production ? '; Secure' : '';
+  return `${cookieName}=${value}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${maxAge}${secure}`;
 }
 
 export function createCuratorAuth(repository: CatalogRepository, passwordHash: string) {

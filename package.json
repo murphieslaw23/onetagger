@@ -8,6 +8,12 @@
     "dev:api": "pnpm --dir server dev",
     "build": "pnpm --dir packages/domain build && pnpm --dir client build && pnpm --dir server build",
     "test": "pnpm --dir packages/domain test && pnpm --dir client test && pnpm --dir server test",
-    "typecheck": "pnpm --dir packages/domain build && pnpm --dir client exec vue-tsc --noEmit && pnpm --dir server typecheck"
-  }
+    "typecheck": "pnpm --dir packages/domain build && pnpm --dir client exec vue-tsc --noEmit && pnpm --dir server typecheck",
+    "test:e2e": "playwright test",
+    "test:deployment": "python3 -m unittest discover -s deploy/vps -p \"test_*.py\""
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  },
+  "packageManager": "pnpm@12.8.1"
 }

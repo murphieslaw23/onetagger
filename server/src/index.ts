@@ -3,21 +3,26 @@ import { URL } from 'node:url';
 import { ProviderRegistry } from './core/registry.js';
 import type { ProviderId } from './domain.js';
 import { ArtworkFetchError, fetchProviderArtwork } from './providers/artwork.js';
-import { InMemoryJobQueue } from './jobs/in-memory.js';
+import { InMemoryJobQueue, JobQueueFullError } from './jobs/in-memory.js';
 import { enrichMix } from './core/enrichment.js';
 import { WaveformQueue } from './core/waveform.js';
 import { openCatalog } from './catalog/repository.js';
 import { createCuratorAuth } from './auth/curator.js';
 import { handleAuthRoute } from './auth/routes.js';
 import { handleCatalogRoute } from './catalog/routes.js';
-import { HttpInputError, isAllowedOrigin, readJsonBody } from './http.js';
+import { HttpInputError, isAllowedOrigin, publicErrorMessage, readJsonBody, validateSearchQuery } from './http.js';
 
 const port = Number(process.env.PORT || 8787);
 const catalog = openCatalog(process.env.CATALOG_DB_PATH || './data/catalog.sqlite');
+// Runs left open by a previous process can never finish. Close them out at start so a
+// record is never implicitly "enriching" forever and every interruption is retryable.
+const interruptedRuns = catalog.interruptStaleEnrichmentRuns();
+if (interruptedRuns > 0) console.log(`Closed ${interruptedRuns} interrupted enrichment run(s) from a previous process`);
 const curatorAuth = createCuratorAuth(catalog, process.env.CURATOR_PASSWORD_HASH || '');
 const registry = new ProviderRegistry();
 const queue = new InMemoryJobQueue(registry);
-const waveformQueue = new WaveformQueue();
+catalog.interruptStaleAnalysisJobs();
+const waveformQueue = new WaveformQueue(catalog);
 
 function corsOrigin(req: http.IncomingMessage): string | undefined {
   const requested = req.headers.origin;
@@ -42,10 +47,13 @@ function json(req: http.IncomingMessage, res: http.ServerResponse, status: numbe
 }
 
 async function body(req: http.IncomingMessage): Promise<any> {
-  return readJsonBody(req);
+  const input = await readJsonBody(req);
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new HttpInputError('A JSON object is required', 400);
+  return input;
 }
 
 const server = http.createServer(async (req, res) => {
+  try {
   if (!req.url) return json(req, res, 404, { error: 'not found' });
   if (req.method === 'OPTIONS') return json(req, res, 204, {});
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -60,7 +68,6 @@ const server = http.createServer(async (req, res) => {
       return json(req, res, 401, { error: 'Curator login is required' });
     }
 
-  try {
     if (req.method === 'GET' && url.pathname === '/api/live') {
       return json(req, res, 200, { ok: true, service: 'syco23-mixsets' });
     }
@@ -75,8 +82,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/api/jobs') {
       const input = await body(req);
-      if (!input.provider || (!input.query?.q && !input.query?.url && !input.query?.artist)) return json(req, res, 400, { error: 'provider and query are required' });
-      return json(req, res, 202, queue.create(String(input.provider), input.query));
+      if (typeof input.provider !== 'string' || !registry.discovery.has(input.provider)) throw new HttpInputError('Choose a supported discovery provider',400);
+      const query = validateSearchQuery(input.query);
+      try {
+        return json(req, res, 202, queue.create(input.provider, query));
+      } catch (error) {
+        if (error instanceof JobQueueFullError) return json(req, res, 429, { error: error.message });
+        throw error;
+      }
     }
     const jobMatch = url.pathname.match(/^\/api\/jobs\/([^/]+)$/);
     if (req.method === 'GET' && jobMatch) {
@@ -90,7 +103,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/api/enrich') {
       const input = await body(req);
-      if (!input.title || !Array.isArray(input.artists)) return json(req, res, 400, { error: 'title and artists are required' });
+      if (typeof input.title !== 'string' || !input.title.trim() || input.title.length > 500 || !Array.isArray(input.artists) || input.artists.length > 100 || input.artists.some((artist:unknown)=>typeof artist!=='string'||artist.length>500)) return json(req, res, 400, { error: 'title and artists are required' });
       const providerIds: ProviderId[] = ['freeteknomusic', 'soundcloud', 'archiveorg', 'discogs', 'youtube', 'hearthis'];
       if (input.providers !== undefined && (!Array.isArray(input.providers) || input.providers.some((provider: unknown) => !providerIds.includes(provider as ProviderId)))) {
         return json(req, res, 400, { error: 'providers must contain only supported provider IDs' });
@@ -129,7 +142,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/waveforms') {
       const input = await body(req);
       if (typeof input.sourceUrl !== 'string' || input.sourceUrl.length > 2048) return json(req, res, 400, { error: 'A direct public audio URL is required' });
-      try { return json(req, res, 202, waveformQueue.create(input.sourceUrl)); }
+      try { return json(req, res, 202, waveformQueue.create(input.sourceUrl, typeof input.recordId === 'string' ? input.recordId : undefined)); }
       catch (error) { return json(req, res, 422, { error: error instanceof Error ? error.message : String(error) }); }
     }
     const waveformMatch = url.pathname.match(/^\/api\/waveforms\/([^/]+)$/);
@@ -184,7 +197,7 @@ const server = http.createServer(async (req, res) => {
     return json(req, res, 404, { error: 'not found' });
   } catch (error) {
     const status = error instanceof HttpInputError ? error.statusCode : 500;
-    return json(req, res, status, { error: error instanceof Error ? error.message : String(error) });
+    return json(req, res, status, { error: publicErrorMessage(error, 'Request failed') });
   }
 });
 

@@ -12,6 +12,10 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', name: 'library', component: CatalogIndexView },
+    { path: '/artists', component: CatalogIndexView, props: { indexKind: 'artist' } },
+    { path: '/crews', component: CatalogIndexView, props: { indexKind: 'crew' } },
+    { path: '/labels', component: CatalogIndexView, props: { indexKind: 'label' } },
+    { path: '/events', component: CatalogIndexView, props: { indexKind: 'event' } },
     { path: '/catalog/:kind', name: 'catalog-index', component: CatalogIndexView },
     { path: '/catalog/records/:id', name: 'catalog-record', component: CatalogDetailView },
     { path: '/import', name: 'import', component: ImportView },
