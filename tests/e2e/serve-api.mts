@@ -5,6 +5,11 @@ import { openCatalog } from '../../server/src/catalog/repository.js';
 import { applyClaims } from '../../server/src/catalog/merge.js';
 import { hashCuratorPassword } from '../../server/src/auth/curator.js';
 import { ProviderRegistry } from '../../server/src/core/registry.js';
+import { ArchiveOrgProvider } from '../../server/src/providers/archiveorg.js';
+import { DiscogsEnricher } from '../../server/src/providers/discogs.js';
+import { FreeteknomusicProvider } from '../../server/src/providers/freeteknomusic.js';
+import { HearthisProvider } from '../../server/src/providers/hearthis.js';
+import { SoundCloudProvider } from '../../server/src/providers/soundcloud.js';
 import { YouTubeProvider } from '../../server/src/providers/youtube.js';
 import type { CatalogRecord, ProviderRef } from '@syco23/catalog-domain';
 
@@ -17,6 +22,35 @@ ProviderRegistry.prototype.search = async function(providerId, query) {
   return [{ provider: 'youtube', title: 'Imported Click Recording', artists: [], crews: [], durationMs: 5400000, description: 'Verified recording metadata from deterministic provider fixture', artwork: ['https://i.ytimg.com/vi/e2eImport01/hqdefault.jpg'], source: { provider: 'youtube', url: `https://www.youtube.com/watch?v=${id}`, externalId: id }, confidence: 1, reasons: ['Explicit source identity'], raw: {} }];
 };
 YouTubeProvider.prototype.lookupVideo = async sourceUrl => ({ id: new URL(sourceUrl).searchParams.get('v')!, title: 'Imported Click Recording', artist: 'Uploader is not a performer', artworkUrl: 'https://i.ytimg.com/vi/e2eImport01/hqdefault.jpg' });
+
+// Enrichment (`enrichCatalogRecord` -> `enrichMix`) resolves records through the raw
+// provider adapters (provider.health() / provider.search() / artwork lookups) instead of
+// through the registry, so those prototypes must be stubbed too. Without this the
+// click-through enrichment reaches the live Archive.org, hearthis.at and Discogs endpoints
+// and stalls past the Playwright assertion timeout.
+const offlineHealth = (id: string) => async () => ({ id, state: 'offline', detail: 'Disposable e2e provider fixture', checkedAt: nowForProvider() });
+ArchiveOrgProvider.prototype.health = offlineHealth('archiveorg');
+ArchiveOrgProvider.prototype.search = async () => [];
+FreeteknomusicProvider.prototype.health = offlineHealth('freeteknomusic');
+FreeteknomusicProvider.prototype.search = async () => [];
+HearthisProvider.prototype.health = offlineHealth('hearthis');
+HearthisProvider.prototype.search = async () => [];
+HearthisProvider.prototype.lookupTrack = async () => { throw new Error('Disposable e2e provider fixture'); };
+HearthisProvider.prototype.lookupArtwork = async () => undefined;
+SoundCloudProvider.prototype.health = async () => ({ id: 'soundcloud', state: 'limited', detail: 'Disposable e2e provider fixture', checkedAt: nowForProvider() });
+SoundCloudProvider.prototype.search = async () => [];
+SoundCloudProvider.prototype.resolvePublicArtwork = async () => ({ sourceUrl: '', artworkUrl: undefined });
+SoundCloudProvider.prototype.lookupArtwork = async () => undefined;
+DiscogsEnricher.prototype.health = offlineHealth('discogs');
+DiscogsEnricher.prototype.enrichEntity = async () => [];
+DiscogsEnricher.prototype.hydrateEntity = async () => undefined;
+YouTubeProvider.prototype.health = async () => ({ id: 'youtube', state: 'ready', detail: 'Disposable e2e provider fixture', checkedAt: nowForProvider() });
+YouTubeProvider.prototype.search = async function (query: { url?: string }) {
+  if (!query.url) return [];
+  const id = new URL(query.url).searchParams.get('v') || 'e2eImport01';
+  return [{ provider: 'youtube', title: 'Imported Click Recording', artists: [], crews: [], durationMs: 5400000, description: 'Verified recording metadata from deterministic provider fixture', artwork: ['https://i.ytimg.com/vi/e2eImport01/hqdefault.jpg'], source: { provider: 'youtube', url: `https://www.youtube.com/watch?v=${id}`, externalId: id }, confidence: 1, reasons: ['Explicit source identity'], raw: {} }];
+};
+YouTubeProvider.prototype.lookupArtwork = async () => 'https://i.ytimg.com/vi/e2eImport01/hqdefault.jpg';
 const directory = mkdtempSync(join(tmpdir(), 'syco23-click-e2e-'));
 process.on('exit', () => rmSync(directory, { recursive: true, force: true }));
 process.env.CATALOG_DB_PATH = join(directory, 'catalog.sqlite');
