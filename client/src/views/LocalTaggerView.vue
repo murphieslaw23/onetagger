@@ -40,6 +40,15 @@
         <p class="local-tagger__note">Only missing fields are added. Automatic matching requires a meaningful title and at least one artist. Existing tags and covers take priority.</p>
         <p v-if="!authenticated" class="local-tagger__login">Provider lookup requires curator access. <router-link to="/login?redirect=/local-tags">Sign in to enrich files</router-link></p>
 
+        <button class="btn btn--wide" :disabled="!canAutoTag" data-testid="auto-tag" @click="autoTagAndEnrich">
+          <q-icon :name="busy === 'auto' ? 'mdi-loading mdi-spin' : 'mdi-auto-fix'" />
+          {{ busy === 'auto' ? 'Auto-tagging accepted files…' : 'Auto-tag from filenames' }}
+        </button>
+        <p class="local-tagger__note">Auto-tag reads artist, title and year from each filename. Files with at least {{ autoAcceptPercent }}% evidence are enriched automatically; weaker names are left for you.</p>
+        <label v-if="authenticated" class="local-tagger__sync">
+          <input v-model="syncLibrary" type="checkbox" :disabled="busy !== '' || syncing" data-testid="sync-library" />
+          <span>Also sync accepted tracks to the shared archive</span>
+        </label>
         <button class="btn btn--wide" :disabled="!canEnrich" @click="enrichFolder">
           <q-icon :name="busy === 'enrich' ? 'mdi-loading mdi-spin' : 'mdi-database-search-outline'" />
           {{ busy === 'enrich' ? 'Enriching sequentially…' : `Enrich ${eligibleCount} eligible files` }}
@@ -54,7 +63,7 @@
       <section class="panel local-tagger__files">
         <div class="panel-head">
           <span>{{ tracks.length }} MP3 FILES</span>
-          <b>{{ completedCount }} PROCESSED</b>
+          <b>{{ acceptedCount }} AUTO-ACCEPTED · {{ completedCount }} PROCESSED</b>
         </div>
         <div v-if="busy" class="local-tagger__progress" role="progressbar" :aria-valuenow="progress.done" :aria-valuemin="0" :aria-valuemax="progress.total">
           <i :style="{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }"></i>
@@ -82,6 +91,8 @@
               <span v-if="track.durationMs">{{ formatDuration(track.durationMs) }}</span>
               <span>{{ track.cover || track.coverUrl ? 'cover ready' : 'no cover' }}</span>
               <span v-if="track.genres.length">{{ track.genres.join(' · ') }}</span>
+              <span v-if="track.evidence !== undefined" :data-accepted="track.accepted ? 'true' : 'false'">{{ track.accepted ? 'auto-tag' : 'review' }} · {{ percent(track.evidence) }}%</span>
+              <span v-if="track.syncState === 'synced'" data-synced="true">synced</span>
             </div>
             <small class="local-track__detail">{{ track.detail }}</small>
           </article>
@@ -103,7 +114,8 @@ import { useMixStore } from '../composables/useMixStore';
 import { catalogApi } from '../catalog/api';
 import { ApiRequestError, enrichLocalTrackMetadata, fetchProviderArtwork, getProviderHealth } from '../services/api';
 import type { ProviderId } from '../domain/types';
-import { applyEnrichment, buildTaggedMp3, hasSolidMetadataBase, normalizeTagText, readLocalMp3, type LocalMp3Track } from '../local-mp3';
+import { applyEnrichment, applyFilenameIdentity, AUTO_ACCEPT_EVIDENCE, buildTaggedMp3, hasSolidMetadataBase, normalizeTagText, providerFromSourceUrl, readLocalMp3, type LocalMp3Track } from '../local-mp3';
+import { toImportCandidate } from '../catalog/views';
 
 interface LocalFileHandle {
   readonly kind: 'file';
@@ -136,8 +148,10 @@ const selectedProviders = ref<ProviderId[]>([]);
 const providersLoaded = ref(false);
 const authenticated = ref(false);
 const scanning = ref(false);
-const busy = ref<'' | 'enrich' | 'write'>('');
+const busy = ref<'' | 'enrich' | 'write' | 'auto'>('');
 const errorMessage = ref('');
+const syncLibrary = ref(false);
+const syncing = ref(false);
 const progress = ref({ done: 0, total: 0, phase: '' });
 let alive = true;
 
@@ -148,6 +162,10 @@ const writableCount = computed(() => writableTracks.value.length);
 const completedCount = computed(() => tracks.value.filter((track) => track.state === 'written' || track.state === 'enriched' || track.state === 'skipped').length);
 const canEnrich = computed(() => Boolean(authenticated.value && folder.value && tracks.value.length && !busy.value && selectedProviders.value.length && eligibleCount.value));
 const canWrite = computed(() => Boolean(folder.value && writableCount.value && !busy.value));
+const acceptedCount = computed(() => tracks.value.filter((track) => track.accepted).length);
+const canAutoTag = computed(() => Boolean(folder.value && tracks.value.length && !busy.value && !syncing.value));
+const autoAcceptPercent = Math.round(AUTO_ACCEPT_EVIDENCE * 100);
+function percent(value: number) { return Math.round(value * 100); }
 
 async function collectMp3Files(directory: LocalDirectoryHandle, parent = '', result: Array<{ path: string; handle: LocalFileHandle }> = []) {
   for await (const [name, entry] of directory.entries()) {
@@ -212,6 +230,36 @@ function providerUnavailable(id: ProviderId, status: 'ready' | 'limited' | 'offl
   return status === 'offline' || (['soundcloud', 'youtube'].includes(id) && status !== 'ready');
 }
 
+async function enrichTrack(track: LocalMp3Track): Promise<'ok' | 'skipped' | 'unauthorized' | 'failed'> {
+  updateArtists(track);
+  if (!hasSolidMetadataBase(track)) {
+    track.state = 'skipped';
+    track.detail = 'Needs a meaningful title and at least one artist';
+    return 'skipped';
+  }
+  try {
+    const result = await enrichLocalTrackMetadata({
+      title: normalizeTagText(track.title),
+      artists: track.artists,
+      durationMs: track.durationMs,
+      recordedAt: track.year ? String(track.year) : undefined,
+      description: track.comment || undefined,
+      genres: track.genres,
+      artwork: track.cover || track.coverUrl ? [{ url: 'https://local.invalid/existing-cover', kind: 'cover' }] : [],
+      providers: [...selectedProviders.value],
+    });
+    applyEnrichment(track, result);
+    if (result.failures.length && !track.enrichedBy.length) {
+      track.detail = `No confident update; ${result.failures.length} provider(s) unavailable`;
+    }
+    return 'ok';
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 401) return 'unauthorized';
+    track.detail = `Provider request failed: ${error instanceof Error ? error.message : 'unknown error'}`;
+    return 'failed';
+  }
+}
+
 async function enrichFolder() {
   if (!canEnrich.value) return;
   busy.value = 'enrich';
@@ -220,38 +268,86 @@ async function enrichFolder() {
   progress.value = { done: 0, total: batch.length, phase: 'Enriching' };
   for (const track of batch) {
     if (!alive) return;
-    updateArtists(track);
-    if (!hasSolidMetadataBase(track)) {
-      track.state = 'skipped';
-      track.detail = 'Needs a meaningful title and at least one artist';
-    } else {
-      try {
-        const result = await enrichLocalTrackMetadata({
-          title: normalizeTagText(track.title),
-          artists: track.artists,
-          durationMs: track.durationMs,
-          recordedAt: track.year ? String(track.year) : undefined,
-          description: track.comment || undefined,
-          genres: track.genres,
-          artwork: track.cover || track.coverUrl ? [{ url: 'https://local.invalid/existing-cover', kind: 'cover' }] : [],
-          providers: [...selectedProviders.value],
-        });
-        applyEnrichment(track, result);
-        if (result.failures.length && !track.enrichedBy.length) {
-          track.detail = `No confident update; ${result.failures.length} provider(s) unavailable`;
-        }
-      } catch (error) {
-        if (error instanceof ApiRequestError && error.status === 401) {
-          await router.push('/login?redirect=/local-tags');
-          return;
-        }
-        track.detail = `Provider request failed: ${error instanceof Error ? error.message : 'unknown error'}`;
-      }
-    }
+    if (await enrichTrack(track) === 'unauthorized') { await router.push('/login?redirect=/local-tags'); break; }
     progress.value = { ...progress.value, done: progress.value.done + 1 };
   }
   busy.value = '';
   progress.value = { done: 0, total: 0, phase: '' };
+}
+
+/**
+ * Derives identity from each filename, scores the evidence, and then automatically
+ * enriches only the files whose evidence reached the auto-accept rate. Everything below
+ * the threshold is left for a curator and is never enriched or synced automatically.
+ */
+async function autoTagAndEnrich() {
+  if (!canAutoTag.value) return;
+  busy.value = 'auto';
+  errorMessage.value = '';
+  for (const track of tracks.value) {
+    if (!alive) return;
+    applyFilenameIdentity(track);
+  }
+  const accepted = tracks.value.filter((track) => track.accepted && track.state !== 'error');
+  if (authenticated.value && selectedProviders.value.length) {
+    progress.value = { done: 0, total: accepted.length, phase: 'Auto-enriching' };
+    for (const track of accepted) {
+      if (!alive) return;
+      if (await enrichTrack(track) === 'unauthorized') { await router.push('/login?redirect=/local-tags'); break; }
+      progress.value = { ...progress.value, done: progress.value.done + 1 };
+    }
+  }
+  if (syncLibrary.value && authenticated.value) await syncAcceptedToLibrary();
+  // `tracks` is a shallowRef, so reassign it to refresh the acceptance summary computed.
+  tracks.value = [...tracks.value];
+  busy.value = '';
+  progress.value = { done: 0, total: 0, phase: '' };
+}
+
+/**
+ * Optional library sync: uploads accepted, provider-backed local records to the shared
+ * archive. A local file with no public provider source has no shared identity, so it is
+ * reported as skipped rather than imported under a private path.
+ */
+async function syncAcceptedToLibrary() {
+  if (!authenticated.value) return;
+  syncing.value = true;
+  for (const track of tracks.value) {
+    if (!alive) return;
+    if (!track.accepted) { track.syncState = 'skipped'; continue; }
+    const provider = providerFromSourceUrl(track.sourceUrl);
+    if (!provider || !track.sourceUrl) {
+      track.syncState = 'skipped';
+      track.detail = `${track.detail} · not synced (no public provider source)`;
+      continue;
+    }
+    try {
+      track.syncState = 'idle';
+      const candidate = toImportCandidate({
+        provider,
+        title: normalizeTagText(track.title),
+        artists: track.artists,
+        crews: [],
+        durationMs: track.durationMs,
+        recordedAt: track.year ? String(track.year) : undefined,
+        description: track.comment || undefined,
+        genres: track.genres,
+        artwork: track.coverUrl ? [track.coverUrl] : [],
+        source: { provider, url: track.sourceUrl, externalId: track.sourceUrl },
+        confidence: track.evidence ?? AUTO_ACCEPT_EVIDENCE,
+        reasons: ['Accepted local auto-tag synced to the shared archive'],
+        raw: {},
+      });
+      await catalogApi.importCandidate(candidate);
+      track.syncState = 'synced';
+      track.detail = `${track.detail} · synced to the shared archive`;
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 401) { await router.push('/login?redirect=/local-tags'); break; }
+      track.syncState = 'error';
+      track.detail = `Archive sync failed: ${error instanceof Error ? error.message : 'unknown error'}`;
+    }
+  }
+  syncing.value = false;
 }
 
 async function outputFileHandle(directory: LocalDirectoryHandle, relativePath: string): Promise<LocalFileHandle> {

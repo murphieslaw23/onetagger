@@ -53,6 +53,15 @@ The shared catalog starts empty. Public provider metadata is fetched by the work
 - **Review** shows field conflicts and uncertain identities across all index types, with the current and proposed value, the source link and why the match was proposed.
 - **Merge duplicates** compares two confirmed records side by side before confirming. Fields both records state differently stay in Review instead of being resolved by merge order, and the duplicate's old link keeps working.
 
+## Local file tagging
+
+`/local-tags` scans a folder of MP3s entirely in the browser; originals are never changed.
+
+- **Auto-tag from filenames** derives artist, title and year from each name and scores how much the filename actually establishes. Files reaching the 80% evidence rate are accepted automatically; weaker names are left for a curator.
+- Accepted files are **enriched automatically** — only missing fields are added, and existing tags and covers always win — using the selected providers.
+- **Optional library sync** uploads accepted records that carry a public provider source to the shared archive, so a local file becomes a shared record. A file with no provider source is reported as not synced rather than imported under a private path.
+- **Write tagged copies** writes normalized ID3 tags and front covers into a separate `Mixsets-tagged` folder, leaving the originals untouched.
+
 ## Validation
 
 ```bash
