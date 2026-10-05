@@ -20,6 +20,19 @@ Deployed-browser click-through (headless Chromium 153, real `https://mixsets.syc
 
 Limits: provider-wide live enrichment verification (the Kan10 / Mackitek recordings) is not part of this record. The backup note above corrects an initial attempt that used a read-only connection and therefore missed un-checkpointed WAL content; the verified snapshot was re-taken over a read-write connection. The backend rollback path is the retained `eded9b3` image + release.
 
+## Live enrichment verification — 2026-10-05
+
+Run against production providers with the worker's private credentials, in a **disposable** database via a one-off container (`--env-file deploy/vps/.env`, temporary `CATALOG_DB_PATH`); the production catalog was not mutated.
+
+Provider health (live): freeteknomusic `ready`, archiveorg `ready`, **youtube `ready`** (Data API key accepted), hearthis `ready`, **discogs `ready`** (artist/label enrichment authenticated), **soundcloud `limited`** ("Source artwork lookup available; search requires SoundCloud app credentials") — SoundCloud-wide search remains unavailable.
+
+- **Mackitek search** — live YouTube search returned qualifying long-form results (e.g. "MackiTek 3672 CD 01 (FULL ALBUM)", "SET MACKITEK TRIBE DU SUD"; confidence 0.28–0.46).
+- **Kan10 recording cover** — importing the known Kan10 video (`fuGyMOcQZgg`) with no cover, then enriching, **automatically filled the cover** `https://i.ytimg.com/vi/fuGyMOcQZgg/hqdefault.jpg` (claim evidence `direct`, "Refreshed established provider resource identity directly"). The same cover is already selected on the live Kan10 mix.
+- **Discogs entity lookup** — live lookups succeed: `Kan10` → artist `724857` (profile + image) and `Mackitek Records` → label `80539` (image). The recording's performer entities were **not** auto-confirmed (a name alone is not proof), so `artists`/`crews` stay missing until a curator links them — the intended behavior.
+- Remaining missing fields on the disposable record: `recordingDate`, `styles`, `artists`, `crews`, `labels`, `events`.
+
+Not covered here: importing a Mackitek result into the *production* catalog and confirming its shared detail from an independent session, and the controlled conflicting-claim/Review exercise. There is no disposable-record delete route, so production was deliberately left untouched.
+
 ## Local browser click-through — 2026-10-05
 
 Automated end-to-end click-through was run on `master` (`bdf328a`) with Playwright 1.63.0 driving headless Chromium 153 (`chromium-1243`) against a real Vite dev server, the real catalog API, real curator sessions and a real SQLite catalog; only the external provider boundary is a deterministic fixture. Command: `pnpm test:e2e`. Result: **10/10 passed (57.6s)**.
