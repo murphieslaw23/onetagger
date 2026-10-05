@@ -1,5 +1,15 @@
 # Production Verification
 
+## Recorded rollout — 2026-10-05 (later)
+
+Promotion of `master` (`a0116076a9ab071f422582bd14df4839596e0a95`) carrying the token-free Mixcloud provider and local filename auto-tagging.
+
+- Backend: release worktree `/opt/syco23-releases/mixsets-a011607`, image `syco23-mixsets-api:a0116076a9ab`; container **healthy**. Pre-deploy verified backup `/opt/syco23-mixsets-backups/catalog-a011607.sqlite`.
+- Public TLS `https://mixsets-api.syco23.org/api/*`: `live`, `auth/session`, all five catalog indexes and `catalog/review` return 200; session `{"authenticated":true,"mode":"off","authDisabled":true}`. Data intact through the recreate (4 mixes, 7 provider sources, 21 claims, 1 review item).
+- Live provider health now includes a credential-free **mixcloud `ready`** alongside freeteknomusic/archiveorg/youtube/hearthis/discogs `ready` and soundcloud `limited`.
+- Frontend: Vercel auto-deployed `master`; a deployed-browser check on `https://mixsets.syco23.org` shows the Mixcloud card on `/providers` and the **Auto-tag from filenames** control on `/local-tags`, with no console/page errors.
+- Rollback retained: previous release `/opt/syco23-releases/mixsets-582aea7` and image `syco23-mixsets-api:582aea76f665`.
+
 ## Recorded rollout — 2026-10-05
 
 Promotion of `master` (`582aea76f665e9ced494670742560890f08d767c`, released as image `syco23-mixsets-api:582aea76f665`) beyond the previously deployed `eded9b3`, plus the frontend promotion and a deployed-browser click-through. Performed over SSH to VPS-L.
