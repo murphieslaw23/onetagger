@@ -60,11 +60,11 @@ pnpm test
 pnpm build
 ```
 
-`pnpm test` runs the shared-domain, client API/store, server and deployment suites (108 tests: 5 domain, 24 client, 75 server, 4 deployment). The SQLite Node API emits Node's experimental SQLite warning on Node 22; production is pinned to Node 22.23.3.
+`pnpm test` runs the shared-domain, client API/store, server and deployment suites. The SQLite Node API emits Node's experimental SQLite warning on Node 22; production is pinned to Node 22.23.3.
 
 ## Verification status
 
-Local gates (typecheck, tests, build) pass. Production has **not** been deployed: the worker still runs an older commit, and the rollout is blocked on a privately configured curator hash and the persistent data volume. See [docs/PRODUCTION_VERIFICATION.md](docs/PRODUCTION_VERIFICATION.md) for what has and has not been exercised in a browser or against the live host.
+The production record documents a healthy IONOS VPS-L rollout at code revision `eded9b3`, with persistent catalog storage and the user-selected `AUTH_MODE=off`. Local `master` now contains later catalog work in addition to that deployed revision; it has not been verified as the live revision. See [docs/PRODUCTION_VERIFICATION.md](docs/PRODUCTION_VERIFICATION.md) for the dated runtime evidence and remaining limits.
 
 ## Architecture
 

@@ -52,29 +52,34 @@ function cookie(value: string, maxAge: number): string {
   return `${cookieName}=${value}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${maxAge}${secure}`;
 }
 
-/**
- * Local single-user escape hatch. While active, every request is treated as the
- * curator, so the GUI never blocks on a login the operator does not want.
- *
- * Deliberately opt-in and non-production only: the default is authenticated,
- * and the switch is ignored whenever NODE_ENV === 'production' so a deployed
- * worker cannot be opened up by a stray variable in its environment file.
- */
+/** Local-only compatibility switch; deployed open access requires AUTH_MODE=off. */
 export function isCuratorAuthDisabled(): boolean {
   if (process.env.NODE_ENV === 'production') return false;
   return /^(1|true|yes|on)$/i.test((process.env.CURATOR_AUTH_DISABLED ?? '').trim());
 }
 
-export function createCuratorAuth(repository: CatalogRepository, passwordHash: string) {
+export type AuthMode = 'on' | 'off';
+
+export function resolveCuratorAuthMode(configuredMode: string | undefined = process.env.AUTH_MODE): AuthMode {
+  if (configuredMode !== undefined) {
+    if (configuredMode !== 'on' && configuredMode !== 'off') throw new Error('AUTH_MODE must be on or off');
+    return configuredMode;
+  }
+  return isCuratorAuthDisabled() ? 'off' : 'on';
+}
+
+export function createCuratorAuth(repository: CatalogRepository, passwordHash: string, configuredMode?: string) {
+  const mode = resolveCuratorAuthMode(configuredMode);
   const attempts = new Map<string, { count: number; resetAt: number }>();
-  const authDisabled = isCuratorAuthDisabled();
-  if (authDisabled) console.warn('CURATOR_AUTH_DISABLED is active: every request is treated as curator. Do not use in production.');
+  const authDisabled = mode === 'off';
+  if (authDisabled) console.warn('AUTH_MODE=off is active: every request is treated as curator.');
 
   return {
+    mode,
     disabled: authDisabled,
 
     login(password: string, clientAddress = 'unknown'): string {
-      if (authDisabled) return cookie(randomBytes(32).toString('base64url'), Math.floor(sessionDurationMs / 1000));
+      if (authDisabled) return cookie('', 0);
       if (!passwordHash.startsWith('scrypt$')) throw new AuthError('Curator authentication is not configured', 503);
       const now = Date.now();
       const entry = attempts.get(clientAddress);
@@ -101,7 +106,7 @@ export function createCuratorAuth(repository: CatalogRepository, passwordHash: s
     },
 
     authenticate(request: IncomingMessage): CuratorActor | undefined {
-      if (authDisabled) return { sessionId: 'local-public-access' };
+      if (authDisabled) return { sessionId: 'auth-off' };
       const token = requestCookie(request);
       if (!token) return undefined;
       const hash = tokenHash(token);

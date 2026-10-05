@@ -1,5 +1,31 @@
 # Production Verification
 
+## Recorded rollout — 2026-10-04
+
+This evidence describes the deployed `eded9b3` revision. Local `master` contains later catalog and branch-integration work and has not been verified as the live revision.
+
+Backend deployed to IONOS VPS-L through Remote Desktop Commander. Runtime code revision: `eded9b3006c600a35b3b0f09573e110500e63380`; image: `syco23-mixsets-api:eded9b3006c6`. The release is at `/opt/syco23-releases/mixsets-eded9b3`, with `/opt/syco23-mixsets-current` pointing to it. The service is running and Docker reports **healthy**.
+
+The user selected **App-Login aus**. Vercel project `syco23-mixsets` has `AUTH_MODE=off` and `VITE_AUTH_MODE=off` for production, preview and development. The backend mode was retrieved from Vercel and copied with `deploy/vps/sync_auth_mode.py` into the private worker env before container creation. This is deployment-time synchronization; later Vercel env edits require another sync/recreation and frontend rebuild. Vercel deployment protection was not changed.
+
+Fresh evidence:
+- `pnpm typecheck`, `pnpm test` and `pnpm build`: passed. **112 tests**: 5 domain, 24 client, 77 server, 6 deployment.
+- Production Docker build passed; the runtime now installs the same pinned pnpm version as the build stage. Build context excludes private env files, dependencies, generated output and databases.
+- Public TLS `/api/live`, `/api/auth/session`, all five catalog index routes and `/api/catalog/review`: HTTP 200.
+- Session response without cookies: `{"authenticated":true,"mode":"off"}`.
+- Anonymous POSTs from the preview origin reach input validation (HTTP 400 for deliberately invalid import/job payloads); unapproved-origin import is refused (403). No user records were created by these checks.
+- Exact-origin CORS checked for the newly built Vercel preview. The real mix index route is `/api/catalog/mix`, singular.
+- Named volume `syco23-mixsets_mixsets_data` is mounted read/write at `/app/data`. A separate SQLite probe was written, read successfully after force-recreating the container, then removed.
+- Online catalog backup and restore-to-new-file both passed SQLite integrity and foreign-key validation. Backup: `/opt/syco23-mixsets-backups/catalog-eded9b3.sqlite`.
+- Prior image and private deployment config retained at `/opt/syco23-mixsets-rollback/20261004`.
+- Vercel preview at the runtime code revision is **READY**: https://syco23-mixsets-58y0s0m1v-system-corrupt.vercel.app . Homepage and generated JS return 200; the bundle contains the configured API URL and open-access UI. Browser click-through was not performed in this rollout.
+
+The shared catalog starts empty. Existing browser-local libraries were not accessed or silently imported; the archive access screen retains the explicit migration action. Discovery/waveform queues remain in memory and require one worker. Production frontend promotion and merging [PR #2](https://github.com/murphieslaw23/onetagger/pull/2) were not performed as part of this backend deployment.
+
+## Earlier verification record
+
+The following record predates this rollout; its deployment blockers are superseded by the current rollout above.
+
 Date: 2026-10-04 (local checks re-run; browser and VPS findings unchanged from 2026-10-03)
 
 ## Local implementation checks

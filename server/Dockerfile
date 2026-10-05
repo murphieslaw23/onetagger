@@ -16,6 +16,8 @@ RUN pnpm --filter @syco23/mixsets-server deploy --prod /runtime
 
 FROM node:22.23.3-alpine AS runtime
 WORKDIR /app
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.revision=${VCS_REF}
 
 RUN apk add --no-cache ffmpeg
 

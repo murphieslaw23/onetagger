@@ -80,8 +80,9 @@ test('local single-user mode authenticates every request without a session cooki
       // No password hash is configured at all, yet a bare request authenticates.
       const auth=createCuratorAuth(repo,'');
       assert.equal(auth.disabled,true);
+      assert.equal(auth.mode,'off');
       const bare={headers:{}} as IncomingMessage;
-      assert.ok(auth.authenticate(bare));
+      assert.deepEqual(auth.authenticate(bare),{sessionId:'auth-off'});
       assert.ok(auth.authenticate({headers:{cookie:'syco23_curator=nonsense'}} as IncomingMessage));
       assert.match(auth.logout(bare),/Max-Age=0/i);
     });
@@ -109,7 +110,7 @@ test('local single-user mode is ignored in production so a deployed worker stays
   }
 });
 
-test('authentication stays enabled when the single-user switch is unset or unrecognised',()=>{
+test('authentication stays enabled when the local single-user switch is unset or unrecognised',()=>{
   const oldDisabled=process.env.CURATOR_AUTH_DISABLED;const oldEnv=process.env.NODE_ENV;
   delete process.env.NODE_ENV;
   try{
@@ -121,4 +122,19 @@ test('authentication stays enabled when the single-user switch is unset or unrec
     if(oldDisabled===undefined)delete process.env.CURATOR_AUTH_DISABLED;else process.env.CURATOR_AUTH_DISABLED=oldDisabled;
     if(oldEnv===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=oldEnv;
   }
+});
+
+test('explicit off mode permits anonymous curator access and on remains the default', () => {
+  withCatalog((_path, repo) => {
+    const request = { headers: {} } as IncomingMessage;
+    const protectedAuth = createCuratorAuth(repo, '', 'on');
+    assert.equal(protectedAuth.mode, 'on');
+    assert.equal(protectedAuth.authenticate(request), undefined);
+    const open = createCuratorAuth(repo, '', 'off');
+    assert.equal(open.disabled, true);
+    assert.deepEqual(open.authenticate(request), { sessionId: 'auth-off' });
+    assert.match(open.logout(request), /Max-Age=0/);
+    assert.deepEqual(open.authenticate(request), { sessionId: 'auth-off' });
+    assert.throws(() => createCuratorAuth(repo, '', 'false'), /AUTH_MODE/);
+  });
 });
