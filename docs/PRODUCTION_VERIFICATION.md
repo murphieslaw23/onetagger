@@ -1,5 +1,19 @@
 # Production Verification
 
+## Local browser click-through — 2026-10-06
+
+Automated end-to-end click-through was run on `master` (`bdf328a`) with Playwright 1.63.0 driving headless Chromium 153 (`chromium-1243`) against a real Vite dev server, the real catalog API, real curator sessions and a real SQLite catalog; only the external provider boundary is a deterministic fixture. Command: `pnpm test:e2e`. Result: **10/10 passed (57.6s)**.
+
+The three flows previously recorded below as "not a pass" now have running-browser coverage:
+
+- **Duplicate-merge comparison view** — previews survivor and duplicate with both revisions, confirms the merge, and the retired id still resolves.
+- **Field-evidence panel** — a fresh public browser context sees a committed curator value *and* its `field-evidence` panel, with the editor hidden.
+- **Inbound-mix list on an entity page** — the entity page lists the second mix that references it and links to it.
+
+Also covered in the same run: all five public indexes and shared detail links, review-rejection persistence after reload, event month-precision round-trip, import → enrich → shared reload, narrow (390 px) navigation without horizontal overflow, browser migration retry retaining originals, and stale-save revision conflict.
+
+Limit: this is an **automated headless-Chromium** click-through on the local revision, not a manual click-through in a visible browser and not against the deployed worker. Production frontend promotion and a deployed-browser click-through remain open (see the rollout below).
+
 ## Recorded rollout — 2026-10-04
 
 This evidence describes the deployed `eded9b3` revision. Local `master` contains later catalog and branch-integration work and has not been verified as the live revision.
@@ -18,7 +32,7 @@ Fresh evidence:
 - Named volume `syco23-mixsets_mixsets_data` is mounted read/write at `/app/data`. A separate SQLite probe was written, read successfully after force-recreating the container, then removed.
 - Online catalog backup and restore-to-new-file both passed SQLite integrity and foreign-key validation. Backup: `/opt/syco23-mixsets-backups/catalog-eded9b3.sqlite`.
 - Prior image and private deployment config retained at `/opt/syco23-mixsets-rollback/20261004`.
-- Vercel preview at the runtime code revision is **READY**: https://syco23-mixsets-58y0s0m1v-system-corrupt.vercel.app . Homepage and generated JS return 200; the bundle contains the configured API URL and open-access UI. Browser click-through was not performed in this rollout.
+- Vercel preview at the runtime code revision is **READY**: https://syco23-mixsets-58y0s0m1v-system-corrupt.vercel.app . Homepage and generated JS return 200; the bundle contains the configured API URL and open-access UI. Browser click-through was not performed in this rollout; a later local automated click-through on `master` is recorded above.
 
 The shared catalog starts empty. Existing browser-local libraries were not accessed or silently imported; the archive access screen retains the explicit migration action. Discovery/waveform queues remain in memory and require one worker. Production frontend promotion and merging [PR #2](https://github.com/murphieslaw23/onetagger/pull/2) were not performed as part of this backend deployment.
 
@@ -52,7 +66,7 @@ Smoke tests below were run on 2026-10-03 and were **not repeated** after the 202
 - Local tagger smoke test: `/local-tags` loaded on the fresh Vite server, reported six provider states, required curator login for enrichment, and confirmed browser folder-picker support. No real user folder was selected; MP3 read/write is covered by unit tests.
 - Desktop and 320 CSS-pixel mobile checks: no horizontal overflow at tested widths. A 312 CSS-pixel emulation is below the app's existing 320-pixel minimum and overflows by 8 pixels.
 
-**Open item, not a pass:** the duplicate-merge comparison view, the field-evidence panel and the inbound-mix list on an entity page have unit and HTTP-level coverage but have not been clicked through in a running browser since these changes landed.
+**Resolved 2026-10-06:** the duplicate-merge comparison view, the field-evidence panel and the inbound-mix list on an entity page previously had unit/HTTP-level coverage only. They now have automated running-browser click-through coverage on `master`; see the 2026-10-06 record at the top of this document.
 
 ## Production status
 
