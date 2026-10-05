@@ -61,18 +61,19 @@ export function isCuratorAuthDisabled(): boolean {
 export type AuthMode = 'on' | 'off';
 
 export function resolveCuratorAuthMode(configuredMode: string | undefined = process.env.AUTH_MODE): AuthMode {
+  if (isCuratorAuthDisabled()) return 'off';
   if (configuredMode !== undefined) {
     if (configuredMode !== 'on' && configuredMode !== 'off') throw new Error('AUTH_MODE must be on or off');
     return configuredMode;
   }
-  return isCuratorAuthDisabled() ? 'off' : 'on';
+  return 'on';
 }
 
 export function createCuratorAuth(repository: CatalogRepository, passwordHash: string, configuredMode?: string) {
   const mode = resolveCuratorAuthMode(configuredMode);
   const attempts = new Map<string, { count: number; resetAt: number }>();
   const authDisabled = mode === 'off';
-  if (authDisabled) console.warn('AUTH_MODE=off is active: every request is treated as curator.');
+  if (authDisabled) console.warn('Curator authentication is disabled: every request is treated as curator.');
 
   return {
     mode,

@@ -81,6 +81,7 @@ test('local single-user mode authenticates every request without a session cooki
       const auth=createCuratorAuth(repo,'');
       assert.equal(auth.disabled,true);
       assert.equal(auth.mode,'off');
+      assert.equal(createCuratorAuth(repo,'','on').mode,'off');
       const bare={headers:{}} as IncomingMessage;
       assert.deepEqual(auth.authenticate(bare),{sessionId:'auth-off'});
       assert.ok(auth.authenticate({headers:{cookie:'syco23_curator=nonsense'}} as IncomingMessage));
