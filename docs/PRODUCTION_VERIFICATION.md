@@ -10,6 +10,19 @@ Promotion of `master` (`a0116076a9ab071f422582bd14df4839596e0a95`) carrying the 
 - Frontend: Vercel auto-deployed `master`; a deployed-browser check on `https://mixsets.syco23.org` shows the Mixcloud card on `/providers` and the **Auto-tag from filenames** control on `/local-tags`, with no console/page errors.
 - Rollback retained: previous release `/opt/syco23-releases/mixsets-582aea7` and image `syco23-mixsets-api:582aea76f665`.
 
+## Production import and controlled conflict — 2026-10-05
+
+The final Task 9 item was exercised against the live catalog (`a011607`).
+
+- **Mackitek discovery** — `POST /api/jobs {provider:'youtube', query:{q:'Mackitek'}}` returned 6 long-form results; the first, "01h20 dans le rouge" (80.6 min), was imported.
+- **Import** — created mix `mix_5fc3b9e4-bc5d-4f0a-b514-ef65e1475d61` (source `youtube:video:1hjkYjJR36A`); a parsed cover claim was correctly held in Review rather than auto-selected.
+- **Enrichment** — attempted soundcloud/archiveorg/youtube/hearthis/mixcloud, applied 1; soundcloud reported `limited`; remaining gaps: `recordingDate`, `genres`, `styles`, `artists`, `crews`, `labels`, `events`.
+- **Independent-session verification** — an unauthenticated request (no cookie, no Origin) read the record (HTTP 200) and it appears in the public mix index.
+- **Controlled conflicting claim** — a real second source, Mixcloud "Mackitek Records - Dans Le ROUGE" (4,832 s vs. the YouTube copy's 4,838 s — the same recording), was imported as `mix_2489ae19…` and merged as the duplicate. The survivor kept its selected `durationMs` 4,838,000 and title; the duplicate's 4,832,000 became a field-level Review item; both provider identities followed the survivor and the retired id still resolves (HTTP 200).
+- **Cleanup** — every Review item was rejected (survivor values retained) and the duplicate was retired by the merge, so no disposable record remains. The only lasting change is the one real imported mix: the public index lists `total 5`, all `reviewState ready`, and `/api/catalog/review` is empty.
+
+A latent merge defect was found and fixed during this exercise: a conflicting merge passed the duplicate's stored provider source (carrying `addedAt`) where a bare `ProviderRef` is required, failing strict validation. Fixed in `347cfc4` ("fix(catalog): keep a dated provider source out of the merge conflict claim") with a regression test; the deployed worker and the live exercise both run the fixed build.
+
 ## Recorded rollout — 2026-10-05
 
 Promotion of `master` (`582aea76f665e9ced494670742560890f08d767c`, released as image `syco23-mixsets-api:582aea76f665`) beyond the previously deployed `eded9b3`, plus the frontend promotion and a deployed-browser click-through. Performed over SSH to VPS-L.
