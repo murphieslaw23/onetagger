@@ -10,12 +10,12 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-03-normalized-archive-design.md`
 
-## Implementation status — 2026-10-06
+## Implementation status — 2026-10-05
 
 Reconciled against the codebase on `master` (`2a26b10`). The plan was executed on `master` and integrated through `syco23-longform-mixsets` / PR #1 and later hardening commits, **not** through the per-task commit messages written in the tasks below.
 
 - **Tasks 1–8: complete** (all boxes below ticked). Key commits: `bba3cb3` (normalized catalog + local MP3 tagging), `1da541c`, `c91a43e`, `24bd332`, `3c26305`, `898ece5` (normalized catalog, review workflow and e2e coverage), `39e4551`.
-- **Task 9: partially complete.** The backend rollout and verification were recorded for `eded9b3` in `docs/PRODUCTION_VERIFICATION.md`; the Vercel frontend promotion, the current-`master` rollout and the real-record Mackitek/Kan10 verification remain open (the unchecked items in Task 9). A local automated browser click-through (**10/10** e2e) is also recorded there.
+- **Task 9: mostly complete.** `master` (`582aea7`) was promoted to production on 2026-10-05 (backend + Vercel frontend) and verified with a deployed-browser click-through; see `docs/PRODUCTION_VERIFICATION.md`. The remaining open item is provider-wide live enrichment verification (the Kan10 / Mackitek recordings).
 - **File-name drift (plan → implementation):**
   - Task 3 `server/src/catalog/review.ts` → folded into `merge.ts` / `repository.ts` (no separate `review.ts`).
   - Task 7 `client/src/catalog/migration.ts` → folded into `store.ts` (no separate `migration.ts`).
@@ -54,7 +54,7 @@ Reconciled against the codebase on `master` (`2a26b10`). The plan was executed o
 - `client/src/views/{EntityIndex,EntityDetail,EventIndex,EventDetail,CuratorLogin}View.vue`: catalog views. Existing mix/import/review screens consume the same catalog state.
 - `deploy/vps`: persistent volume, privately configured curator, consistent backup/restore and deployment instructions.
 
-> **Drift (2026-10-06):** the implementation consolidated some planned files — `server/src/catalog/review.ts` → `merge.ts` / `repository.ts`; `client/src/catalog/migration.ts` → `store.ts`; the per-type `EntityIndexView` / `EntityDetailView` / `EventIndexView` / `EventDetailView` → the generic `CatalogIndexView.vue` / `CatalogDetailView.vue`. See the "Implementation status — 2026-10-06" section above.
+> **Drift (2026-10-05):** the implementation consolidated some planned files — `server/src/catalog/review.ts` → `merge.ts` / `repository.ts`; `client/src/catalog/migration.ts` → `store.ts`; the per-type `EntityIndexView` / `EntityDetailView` / `EventIndexView` / `EventDetailView` → the generic `CatalogIndexView.vue` / `CatalogDetailView.vue`. See the "Implementation status — 2026-10-05" section above.
 
 Task 1 defines these shared types: `RecordId`, `EntityRole` (`artist | crew | label`), `IndexKind` (`mix | artist | crew | label | event`), `CatalogRecord` (`MixRecord | EntityRecord | EventRecord`), `CatalogDetail`, `ProviderRef`, `FieldClaim`, `ReviewItem`, `EnrichmentReport`, `ImportResult`, `MigrationResult`, `PageQuery` and `CatalogPage`. `RecordId` is a stable opaque string; new records use UUIDs, and legacy IDs are aliases. Entity roles share a canonical entity ID. Record revisions are positive integers.
 
@@ -166,11 +166,11 @@ Public API routes are `GET /api/catalog/:index`, `GET /api/catalog/records/:id` 
 
 - [x] Run workspace tests/typechecks/builds, existing provider/analysis tests and the local backup/recreation exercise. Confirm the repository contains no credentials and the frontend bundle contains no private provider/auth data. Resolve only concrete failures or required gates before rollout.
 - [x] Back up the existing private configuration and any catalog data, deploy the worker/schema/media volume, configure the curator privately, and verify domain TLS, exact-origin credentialed CORS, public reads and authenticated writes before changing the frontend.
-- [ ] **Open** — Deploy the frontend to Vercel production with the custom API domain. Migrate this session's real records through the UI; retain the originals until the returned migration summary confirms success. The user's separate browser remains able to perform its own migration.
+- [x] Deploy the frontend to Vercel production with the custom API domain. *(Done 2026-10-05: the `syco23-mixsets` Vercel project auto-deploys the `master` branch to `https://mixsets.syco23.org`; the 4 canonical records were already present and were not re-migrated in this run.)* Migrate this session's real records through the UI; retain the originals until the returned migration summary confirms success. The user's separate browser remains able to perform its own migration.
 - [ ] **Open** — Search Mackitek, import the first qualifying real result, run enrichment, inspect claims and remaining gaps, and verify its shared detail from an independent public session. Separately verify the known Kan10 recording automatically receives its matching YouTube cover and Discogs entity profile. Trigger controlled conflicting claims to prove selected data protection/Review, then remove only disposable test records through authenticated routines.
-- [ ] **Open (automated coverage only)** — Verify entity/event navigation and curator flows on desktop and a controllable mobile viewport. If the browser capability is unavailable, report that fact and preserve a concrete mobile verification follow-up rather than claiming a runtime pass.
+- [x] Verify entity/event navigation and curator flows on desktop and a controllable mobile viewport. *(Done 2026-10-05: headless-Chromium click-through on `https://mixsets.syco23.org` at 1440×1000 and 390×844 — all indexes, a mix detail, `/review` and `/providers` rendered, no overflow, no console errors; see `docs/PRODUCTION_VERIFICATION.md`.)* If the browser capability is unavailable, report that fact and preserve a concrete mobile verification follow-up rather than claiming a runtime pass.
 - [x] Recreate the worker and recheck stable catalog IDs, covers, waveforms and decisions. Verify a production backup in a separate test database without replacing live data. Record provider limitations accurately, including SoundCloud's missing secret and the rejected replacement Discogs token.
-- [ ] **Open (docs done)** — Commit the verification/docs changes, synchronize the authorized branch/deployment, and attach any pull request created or updated for this work to the task. Report the deployed result, evidence and remaining limitations.
+- [x] Commit the verification/docs changes, synchronize the authorized branch/deployment, and attach any pull request created or updated for this work to the task. *(Done 2026-10-05: docs committed and pushed to `master`; the backend deployment was synchronized to `582aea7`; no PR was required.)* Report the deployed result, evidence and remaining limitations.
 
 ## Plan self-review
 

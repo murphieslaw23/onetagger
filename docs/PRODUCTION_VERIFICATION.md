@@ -1,6 +1,26 @@
 # Production Verification
 
-## Local browser click-through — 2026-10-06
+## Recorded rollout — 2026-10-05
+
+Promotion of `master` (`582aea76f665e9ced494670742560890f08d767c`, released as image `syco23-mixsets-api:582aea76f665`) beyond the previously deployed `eded9b3`, plus the frontend promotion and a deployed-browser click-through. Performed over SSH to VPS-L.
+
+Backend:
+- Release worktree `/opt/syco23-releases/mixsets-582aea7` (detached at `582aea7`); private `deploy/vps/.env` carried over; `/opt/syco23-mixsets-current` re-pointed to it and `syco23-mixsets-current-release.json` updated.
+- Container `syco23-mixsets-api` recreated on `syco23-mixsets-api:582aea76f665`; `docker ps` reports **healthy**.
+- Pre-deploy verified backup `/opt/syco23-mixsets-backups/catalog-582aea7.sqlite` (319,488 bytes; integrity `ok`, 0 FK violations, 24 tables, `mixes 4`, `provider_sources 7`, `field_claims 21`, `review_items 1`). Restore proof to a new path passed (`restore-proof-582aea7.sqlite`, `mixes 4`).
+- Named volume `syco23-mixsets_mixsets_data` kept; the same data survived the recreate (4 mixes, 7 sources, 21 claims, 1 review item).
+- Public TLS `https://mixsets-api.syco23.org/api/*`: `live`, `auth/session`, `catalog/mix`, `catalog/artist`, `catalog/crew`, `catalog/label`, `catalog/event` and `catalog/review` all return HTTP 200. Session without cookies: `{"authenticated":true,"mode":"off","authDisabled":true}`.
+- Rollback retained: prior image `syco23-mixsets-api:eded9b3006c6` and release `/opt/syco23-releases/mixsets-eded9b3`.
+
+Frontend:
+- The Vercel project `syco23-mixsets` auto-deploys the `master` branch to production; the current production deployment is **Ready** and aliased to `https://mixsets.syco23.org` (and `https://syco23-mixsets.vercel.app`). The built bundle carries the API base `https://mixsets-api.syco23.org`.
+
+Deployed-browser click-through (headless Chromium 153, real `https://mixsets.syco23.org`):
+- Desktop (1440×1000) and mobile (390×844): title `SYCO23 Mixsets`, "Mixes" heading present, 4 mix links, a mix detail opened, and `/artists`, `/crews`, `/labels`, `/events`, `/review` and `/providers` all rendered. No horizontal overflow and **no console/page errors** on either viewport.
+
+Limits: provider-wide live enrichment verification (the Kan10 / Mackitek recordings) is not part of this record. The backup note above corrects an initial attempt that used a read-only connection and therefore missed un-checkpointed WAL content; the verified snapshot was re-taken over a read-write connection. The backend rollback path is the retained `eded9b3` image + release.
+
+## Local browser click-through — 2026-10-05
 
 Automated end-to-end click-through was run on `master` (`bdf328a`) with Playwright 1.63.0 driving headless Chromium 153 (`chromium-1243`) against a real Vite dev server, the real catalog API, real curator sessions and a real SQLite catalog; only the external provider boundary is a deterministic fixture. Command: `pnpm test:e2e`. Result: **10/10 passed (57.6s)**.
 
@@ -66,7 +86,7 @@ Smoke tests below were run on 2026-10-03 and were **not repeated** after the 202
 - Local tagger smoke test: `/local-tags` loaded on the fresh Vite server, reported six provider states, required curator login for enrichment, and confirmed browser folder-picker support. No real user folder was selected; MP3 read/write is covered by unit tests.
 - Desktop and 320 CSS-pixel mobile checks: no horizontal overflow at tested widths. A 312 CSS-pixel emulation is below the app's existing 320-pixel minimum and overflows by 8 pixels.
 
-**Resolved 2026-10-06:** the duplicate-merge comparison view, the field-evidence panel and the inbound-mix list on an entity page previously had unit/HTTP-level coverage only. They now have automated running-browser click-through coverage on `master`; see the 2026-10-06 record at the top of this document.
+**Resolved 2026-10-05:** the duplicate-merge comparison view, the field-evidence panel and the inbound-mix list on an entity page previously had unit/HTTP-level coverage only. They now have automated running-browser click-through coverage on `master` (local 10/10 e2e and the 2026-10-05 deployed-browser record at the top of this document).
 
 ## Production status
 
