@@ -47,8 +47,12 @@
         <p class="local-tagger__note">Auto-tag reads artist, title and year from each filename. Files with at least {{ autoAcceptPercent }}% evidence are enriched automatically; weaker names are left for you.</p>
         <label v-if="authenticated" class="local-tagger__sync">
           <input v-model="syncLibrary" type="checkbox" :disabled="busy !== '' || syncing" data-testid="sync-library" />
-          <span>Also sync accepted tracks to the shared archive</span>
+          <span>Also sync accepted tracks to the shared archive during auto-tag</span>
         </label>
+        <button v-if="authenticated" class="btn btn--wide" :disabled="!canSync" data-testid="sync-now" @click="syncAcceptedNow">
+          <q-icon :name="syncing ? 'mdi-loading mdi-spin' : 'mdi-cloud-upload-outline'" />
+          {{ syncing ? 'Syncing to the shared archive…' : `Sync ${acceptedCount} accepted to archive` }}
+        </button>
         <button class="btn btn--wide" :disabled="!canEnrich" @click="enrichFolder">
           <q-icon :name="busy === 'enrich' ? 'mdi-loading mdi-spin' : 'mdi-database-search-outline'" />
           {{ busy === 'enrich' ? 'Enriching sequentially…' : `Enrich ${eligibleCount} eligible files` }}
@@ -156,14 +160,19 @@ const progress = ref({ done: 0, total: 0, phase: '' });
 let alive = true;
 
 const eligibleCount = computed(() => tracks.value.filter((track) => track.state !== 'error' && hasSolidMetadataBase(track)).length);
-const writableTracks = computed(() => tracks.value.filter((track) => track.state !== 'error'
-  || (!track.detail.startsWith('Tag scan failed') && !track.detail.startsWith('File exceeds'))));
+const writableTracks = computed(() => tracks.value.filter((track) => {
+  const writable = track.state !== 'error'
+    || (!track.detail.startsWith('Tag scan failed') && !track.detail.startsWith('File exceeds'));
+  // Once auto-tag has judged a filename, only accepted files are written automatically.
+  return writable && track.accepted !== false;
+}));
 const writableCount = computed(() => writableTracks.value.length);
 const completedCount = computed(() => tracks.value.filter((track) => track.state === 'written' || track.state === 'enriched' || track.state === 'skipped').length);
 const canEnrich = computed(() => Boolean(authenticated.value && folder.value && tracks.value.length && !busy.value && selectedProviders.value.length && eligibleCount.value));
 const canWrite = computed(() => Boolean(folder.value && writableCount.value && !busy.value));
 const acceptedCount = computed(() => tracks.value.filter((track) => track.accepted).length);
 const canAutoTag = computed(() => Boolean(folder.value && tracks.value.length && !busy.value && !syncing.value));
+const canSync = computed(() => Boolean(authenticated.value && acceptedCount.value && !busy.value && !syncing.value));
 const autoAcceptPercent = Math.round(AUTO_ACCEPT_EVIDENCE * 100);
 function percent(value: number) { return Math.round(value * 100); }
 
@@ -348,6 +357,12 @@ async function syncAcceptedToLibrary() {
     }
   }
   syncing.value = false;
+}
+
+async function syncAcceptedNow() {
+  if (!canSync.value) return;
+  await syncAcceptedToLibrary();
+  tracks.value = [...tracks.value];
 }
 
 async function outputFileHandle(directory: LocalDirectoryHandle, relativePath: string): Promise<LocalFileHandle> {
