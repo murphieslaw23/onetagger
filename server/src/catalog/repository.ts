@@ -212,22 +212,6 @@ function createTransaction(database: DatabaseSync): CatalogTransaction {
       return row ? { id: row.id, fingerprint: row.fingerprint, claim: JSON.parse(row.claim_json) as FieldClaim, disposition: row.disposition } : undefined;
     },
 
-    listClaims(recordId) {
-      // A record's own provenance: every claim ever made about it and what happened to
-      // it. The detail view needs this to show why a selected field holds its value.
-      const rows = database.prepare(`SELECT c.id, c.fingerprint, c.claim_json, c.disposition
-        FROM field_claims c WHERE c.record_id = ? ORDER BY c.created_at DESC, c.id`)
-        .all(recordId) as Array<{
-          id: string; fingerprint: string; claim_json: string; disposition: ClaimDisposition;
-        }>;
-      return rows.map((row) => ({
-        id: row.id,
-        fingerprint: row.fingerprint,
-        claim: JSON.parse(row.claim_json) as FieldClaim,
-        disposition: row.disposition
-      }));
-    },
-
     getReview(id) {
       return readReview(database, id);
     },
@@ -238,6 +222,11 @@ function createTransaction(database: DatabaseSync): CatalogTransaction {
       const row = database.prepare(`SELECT record_id FROM provider_sources
         WHERE provider = ? AND resource_type = ? AND external_id = ?`).get(ref.provider, ref.resourceType, ref.externalId) as { record_id: string } | undefined;
       return row?.record_id;
+    },
+
+    listClaims(recordId) {
+      const rows = database.prepare('SELECT fingerprint FROM field_claims WHERE record_id=? ORDER BY created_at,id').all(recordId) as {fingerprint:string}[];
+      return rows.map((row)=>this.getClaim(row.fingerprint)!);
     },
 
     saveRecord(input, expectedRevision) {
@@ -408,10 +397,6 @@ export function openCatalog(path: string): CatalogRepository {
     listReview() {
       const rows = database.prepare(`SELECT id FROM review_items WHERE state = 'pending' ORDER BY created_at, id`).all() as { id: string }[];
       return rows.map((row) => readReview(database, row.id)!).filter(Boolean);
-    },
-
-    listClaims(recordId) {
-      return createTransaction(database).listClaims(recordId);
     },
 
     listRelatedMixes(entityId) {

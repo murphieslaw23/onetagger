@@ -208,6 +208,7 @@ export function mergeRecords(repository: CatalogRepository,survivorId:RecordId,d
       const rewritten=rewrite(record) as CatalogRecord;
       if(stableJson(record)!==stableJson(rewritten)) tx.saveRecord({...rewritten,revision:record.revision+1,updatedAt:new Date().toISOString()},record.revision);
     }
+    if(conflicts.length) merged={...merged,reviewState:'review' as const};
     tx.saveRecord(merged,survivor.revision);
     for(const entry of duplicateClaims) {const item=tx.getReview(entry.id);if(item?.state==='pending')tx.refreshReview(item.id,merged.revision,getFieldValue(merged,item.field));}
     const provider=duplicate.kind==='mix'?duplicate.sources[0]:duplicate.kind==='entity'?duplicate.providerRefs[0]:undefined;

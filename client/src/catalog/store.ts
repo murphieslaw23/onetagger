@@ -211,16 +211,6 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
     try { return remember(await gateway.createRecord(input)); }
     catch (error) { fail(error, 'Record was not created'); throw error; }
   }
-  async function mergeRecords(survivor: RecordId, duplicate: RecordId, revisions: [number, number]) {
-    state.error = undefined;
-    try {
-      const record = await gateway.mergeRecords(survivor, duplicate, revisions);
-      state.records = state.records.filter((item) => item.id !== duplicate);
-      delete state.recordCache[duplicate];
-      return remember(record);
-    } catch (error) { fail(error, 'Duplicate merge was not saved'); throw error; }
-  }
-
   async function refreshReview(id: RecordId) {
     const item = await gateway.refreshReview(id);
     const index = state.review.findIndex((review) => review.id === id);
@@ -229,23 +219,24 @@ export function createCatalogStore(gateway: CatalogGateway = catalogApi) {
   }
 
   /**
-   * Merge a confirmed duplicate into its survivor. The retired record leaves the
-   * index: a failed merge must not look like it succeeded, so the local list is only
-   * updated from the record the server actually committed.
+   * Merge a confirmed duplicate into its survivor. Local state only changes after the
+   * server commits: the retired record leaves the index and the cache, the displayed
+   * total shrinks only when the duplicate was part of the current index page, and a
+   * failed Review refresh must never undo the committed merge.
    */
-  async function mergeRecords(survivorId: RecordId, duplicateId: RecordId, expectedRevisions: [number, number]) {
+  async function mergeRecords(survivor: RecordId, duplicate: RecordId, revisions: [number, number]) {
     state.error = undefined;
     try {
-      const merged = remember(await gateway.mergeRecords(survivorId, duplicateId, expectedRevisions));
-      state.records = state.records.filter((record) => record.id !== duplicateId);
-      state.total = Math.max(0, state.total - 1);
+      const wasIndexed = state.records.some((item) => item.id === duplicate);
+      const committed = await gateway.mergeRecords(survivor, duplicate, revisions);
+      state.records = state.records.filter((item) => item.id !== duplicate);
+      delete state.recordCache[duplicate];
+      if (wasIndexed) state.total = Math.max(0, state.total - 1);
+      const merged = remember(committed);
       // The merge can raise new review items for fields the two records disagreed on.
       await loadReview().catch(() => undefined);
       return merged;
-    } catch (error) {
-      state.error = error instanceof Error ? error.message : 'Records were not merged';
-      throw error;
-    }
+    } catch (error) { fail(error, 'Duplicate merge was not saved'); throw error; }
   }
 
   async function migrateLocalLibrary(): Promise<MigrationResult | undefined> {
