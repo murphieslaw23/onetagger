@@ -18,7 +18,7 @@ Frontend:
 Deployed-browser click-through (headless Chromium 153, real `https://mixsets.syco23.org`):
 - Desktop (1440×1000) and mobile (390×844): title `SYCO23 Mixsets`, "Mixes" heading present, 4 mix links, a mix detail opened, and `/artists`, `/crews`, `/labels`, `/events`, `/review` and `/providers` all rendered. No horizontal overflow and **no console/page errors** on either viewport.
 
-Limits: provider-wide live enrichment verification (the Kan10 / Mackitek recordings) is not part of this record. The backup note above corrects an initial attempt that used a read-only connection and therefore missed un-checkpointed WAL content; the verified snapshot was re-taken over a read-write connection. The backend rollback path is the retained `eded9b3` image + release.
+Limits: provider-wide live enrichment verification (the Kan10 / Mackitek recordings) is not part of this record. The backup note above corrects an initial attempt that used a read-only connection and therefore missed un-checkpointed WAL content; the verified snapshot was re-taken over a read-write connection. The backend rollback path is the retained `eded9b3` image + release. The fixed `backup_catalog.py` / `catalog_bundle.py` (snapshot via `VACUUM INTO` over a read-write connection) are installed on this release; a tooling run against the live database produced a self-contained 24-table snapshot.
 
 ## Live enrichment verification — 2026-10-05
 
