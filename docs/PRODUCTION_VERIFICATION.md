@@ -1,5 +1,13 @@
 # Production Verification
 
+## Frontend presentation rollout — 2026-10-05 (later)
+
+Promotion of `master` (`0a3d52a`) carrying the client-side presentation layer: every view now renders human-readable states, field labels and values (shared `client/src/catalog/presentation.ts` plus `StatePill.vue`) instead of raw enums, field keys, JSON or internal timestamps. No server code changed; the worker stays on `347cfc4`.
+
+- Frontend: Vercel auto-deployed `master` to production. `https://mixsets.syco23.org` returns 200 and serves the rebuilt bundle (`index-UzwuGr0X.js`) that contains the new presentation strings (`Archive ID`, `Needs a curator`, `Awaiting your review`, `Finds & fills`, `No login needed`, `Confirmed by sources`, `NO GAPS`).
+- Backend: unchanged and healthy — `https://mixsets-api.syco23.org/api/live` returns `{"ok":true,"service":"syco23-mixsets"}`; container `syco23-mixsets-api:347cfc458ca9` reports healthy.
+- Verification before promotion: `pnpm typecheck`, `pnpm test` (7 domain + 57 client + 119 server + 13 deployment) and `pnpm build` all pass; the local Playwright e2e suite is 12/12.
+
 ## Recorded rollout — 2026-10-05 (later)
 
 Promotion of `master` (`a0116076a9ab071f422582bd14df4839596e0a95`) carrying the token-free Mixcloud provider and local filename auto-tagging.
