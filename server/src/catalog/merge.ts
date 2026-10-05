@@ -211,7 +211,9 @@ export function mergeRecords(repository: CatalogRepository,survivorId:RecordId,d
     if(conflicts.length) merged={...merged,reviewState:'review' as const};
     tx.saveRecord(merged,survivor.revision);
     for(const entry of duplicateClaims) {const item=tx.getReview(entry.id);if(item?.state==='pending')tx.refreshReview(item.id,merged.revision,getFieldValue(merged,item.field));}
-    const provider=duplicate.kind==='mix'?duplicate.sources[0]:duplicate.kind==='entity'?duplicate.providerRefs[0]:undefined;
+    const source=duplicate.kind==='mix'?duplicate.sources[0]:undefined;
+    // A stored source carries addedAt/date metadata, but a claim's provider must be a bare ProviderRef.
+    const provider=source?{provider:source.provider,resourceType:source.resourceType,externalId:source.externalId,...(source.url?{url:source.url}:{})}:duplicate.kind==='entity'?duplicate.providerRefs[0]:undefined;
     for(const conflict of conflicts) {
       const claim:FieldClaim={targetRecordId:survivorId,field:conflict.field,value:conflict.value,provider:provider??{provider:'archiveorg',resourceType:'curator-merge',externalId:duplicateId},sourceUrl:provider?.url??`https://mixsets.syco23.org/mix/${duplicateId}`,observedAt:new Date().toISOString(),evidence:'curated',matchExplanation:`Curator ${sessionId} merged duplicate ${duplicateId}; conflicting selection retained for review`};
       applyOne(tx,claim);
