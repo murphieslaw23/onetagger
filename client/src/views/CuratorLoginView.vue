@@ -3,6 +3,7 @@ import { onMounted, shallowRef } from 'vue';
 import type { MigrationResult } from '@syco23/catalog-domain';
 import { useRoute, useRouter } from 'vue-router';
 import { useCatalogStore } from '../catalog/store';
+import { MIGRATION_STATUS_LABELS } from '../catalog/presentation';
 
 const route = useRoute();
 const router = useRouter();
@@ -80,7 +81,7 @@ async function continueToArchive() {
       <p v-if="migrationResult" data-testid="migration-results" class="migration-result" role="status">{{ migrationResult }}</p>
       <ul v-if="migrationDetails?.outcomes?.length" class="migration-outcomes">
         <li v-for="outcome in migrationDetails.outcomes" :key="outcome.legacyId">
-          <strong>{{ outcome.legacyId }} · {{ outcome.status }}</strong>
+          <strong>{{ outcome.legacyId }} · {{ MIGRATION_STATUS_LABELS[outcome.status] ?? outcome.status }}</strong>
           <router-link v-if="outcome.recordId" :to="`/catalog/records/${encodeURIComponent(outcome.recordId)}`">Open shared record</router-link>
           <p v-for="message in outcome.errors" :key="message">{{ message }}</p>
         </li>

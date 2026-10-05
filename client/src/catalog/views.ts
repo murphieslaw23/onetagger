@@ -1,15 +1,11 @@
 import type { ApiMixCandidate } from '../services/api';
 import { ImportCandidateSchema, CatalogRecordSchema, missingFields, type CatalogRecord, type EnrichmentReport, type RecordId } from '@syco23/catalog-domain';
+import { humanValue } from './presentation';
 
 export interface MetadataRow { field: string; label: string; value: unknown }
 export const recordName = (record: CatalogRecord) => record.kind === 'mix' ? record.title : record.kind === 'entity' ? record.displayName : record.name;
 export const recordLink = (record: CatalogRecord) => `/${record.kind === 'mix' ? 'mix' : record.kind === 'entity' ? 'entity' : 'event'}/${encodeURIComponent(record.id)}`;
-export function formatValue(value: unknown): string {
-  if (value === undefined || value === null || value === '' || (Array.isArray(value) && !value.length)) return 'Not recorded';
-  if (Array.isArray(value)) return value.map(formatValue).join(' · ');
-  if (typeof value === 'object' && 'value' in value && 'precision' in value) return `${String(value.value)} (${String(value.precision)} precision)`;
-  return typeof value === 'object' ? JSON.stringify(value) : String(value);
-}
+export const formatValue = humanValue;
 export function metadataRows(record: CatalogRecord): MetadataRow[] {
   const rows: MetadataRow[] = [];
   const add = (field: string, label: string, value: unknown) => rows.push({ field, label, value });
@@ -100,9 +96,12 @@ export function parseEditorPatch(record: CatalogRecord, draft: Record<string, un
   return Object.fromEntries(Object.keys(patch).map((key) => [key, (validated as unknown as Record<string, unknown>)[key] ?? null]));
 }
 export function enrichmentSummary(report: EnrichmentReport): string {
-  const added = report.applied ? `${report.applied} field(s) added` : 'No fields added';
-  const gaps = report.missingFields.length ? `${report.missingFields.length} field(s) still missing; supported evidence was not found for these gaps` : 'No fields currently missing';
-  return `${added} · ${report.corroborated} corroborated · ${report.reviewed} sent to Review · ${report.errors.length} provider result(s) unavailable · ${gaps}`;
+  const added = report.applied ? `${report.applied} ${report.applied === 1 ? 'field' : 'fields'} added` : 'No fields added';
+  const corroborated = `${report.corroborated} ${report.corroborated === 1 ? 'source agreed' : 'sources agreed'}`;
+  const reviewed = `${report.reviewed} sent to Review`;
+  const errors = `${report.errors.length} ${report.errors.length === 1 ? 'provider unavailable' : 'providers unavailable'}`;
+  const gaps = report.missingFields.length ? `${report.missingFields.length} ${report.missingFields.length === 1 ? 'field' : 'fields'} still missing` : 'No fields currently missing';
+  return `${added} · ${corroborated} · ${reviewed} · ${errors} · ${gaps}`;
 }
 export function duplicatePreview(survivor: CatalogRecord, duplicate: CatalogRecord) {
   if (survivor.id === duplicate.id) throw new Error('Choose two different records');

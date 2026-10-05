@@ -67,7 +67,7 @@
       <section class="panel local-tagger__files">
         <div class="panel-head">
           <span>{{ tracks.length }} MP3 FILES</span>
-          <b>{{ acceptedCount }} AUTO-ACCEPTED · {{ completedCount }} PROCESSED</b>
+          <b>{{ acceptedCount }} AUTO-ACCEPTED · {{ completedCount }} DONE</b>
         </div>
         <div v-if="busy" class="local-tagger__progress" role="progressbar" :aria-valuenow="progress.done" :aria-valuemin="0" :aria-valuemax="progress.total">
           <i :style="{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }"></i>
@@ -77,7 +77,7 @@
           <article v-for="track in tracks" :key="track.id" class="local-track" :data-state="track.state">
             <div class="local-track__top">
               <span class="local-track__path" :title="track.relativePath">{{ track.relativePath }}</span>
-              <span class="local-track__state">{{ track.state }}</span>
+              <span class="local-track__state">{{ LOCAL_TRACK_STATE_LABELS[track.state] ?? track.state }}</span>
             </div>
             <div class="local-track__fields">
               <label>
@@ -97,6 +97,8 @@
               <span v-if="track.genres.length">{{ track.genres.join(' · ') }}</span>
               <span v-if="track.evidence !== undefined" :data-accepted="track.accepted ? 'true' : 'false'">{{ track.accepted ? 'auto-tag' : 'review' }} · {{ percent(track.evidence) }}%</span>
               <span v-if="track.syncState === 'synced'" data-synced="true">synced</span>
+              <span v-else-if="track.syncState === 'skipped'" data-synced="false">not synced</span>
+              <span v-else-if="track.syncState === 'error'" data-synced="false">sync failed</span>
             </div>
             <small class="local-track__detail">{{ track.detail }}</small>
           </article>
@@ -120,6 +122,7 @@ import { ApiRequestError, enrichLocalTrackMetadata, fetchProviderArtwork, getPro
 import type { ProviderId } from '../domain/types';
 import { applyEnrichment, applyFilenameIdentity, AUTO_ACCEPT_EVIDENCE, buildTaggedMp3, hasSolidMetadataBase, normalizeTagText, providerFromSourceUrl, readLocalMp3, type LocalMp3Track } from '../local-mp3';
 import { toImportCandidate } from '../catalog/views';
+import { LOCAL_TRACK_STATE_LABELS } from '../catalog/presentation';
 
 interface LocalFileHandle {
   readonly kind: 'file';
@@ -161,10 +164,11 @@ let alive = true;
 
 const eligibleCount = computed(() => tracks.value.filter((track) => track.state !== 'error' && hasSolidMetadataBase(track)).length);
 const writableTracks = computed(() => tracks.value.filter((track) => {
-  const writable = track.state !== 'error'
-    || (!track.detail.startsWith('Tag scan failed') && !track.detail.startsWith('File exceeds'));
+  // Only files that could actually be read can be written. A track that failed while
+  // writing kept its original on disk, so it remains retryable.
+  const readable = track.state !== 'error' || track.detail.startsWith('Write failed');
   // Once auto-tag has judged a filename, only accepted files are written automatically.
-  return writable && track.accepted !== false;
+  return readable && track.accepted !== false;
 }));
 const writableCount = computed(() => writableTracks.value.length);
 const completedCount = computed(() => tracks.value.filter((track) => track.state === 'written' || track.state === 'enriched' || track.state === 'skipped').length);
@@ -415,21 +419,28 @@ async function writeFolder() {
 
 function formatDuration(milliseconds: number) {
   const minutes = Math.round(milliseconds / 60_000);
-  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return hours ? `${hours}h ${String(remainder).padStart(2, '0')}m` : `${remainder}m`;
 }
 
 onMounted(async () => {
   try {
-    const [health, session] = await Promise.all([getProviderHealth(), catalogApi.checkSession()]);
-    updateProviderHealth(health);
-    authenticated.value = session;
-    selectedProviders.value = health.filter((provider) => !providerUnavailable(provider.id, provider.state)).map((provider) => provider.id);
-    providersLoaded.value = true;
+    authenticated.value = await catalogApi.checkSession();
     setApiState('online');
   } catch {
-    providersLoaded.value = true;
     setApiState('offline');
   }
+  // Provider availability is loaded independently so an unavailable provider registry
+  // never reports the worker itself as offline.
+  try {
+    const health = await getProviderHealth();
+    updateProviderHealth(health);
+    selectedProviders.value = health.filter((provider) => !providerUnavailable(provider.id, provider.state)).map((provider) => provider.id);
+  } catch {
+    updateProviderHealth([]);
+  }
+  providersLoaded.value = true;
 });
 
 onBeforeUnmount(() => { alive = false; });

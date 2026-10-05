@@ -18,11 +18,11 @@
             :key="provider.id"
             :class="{ active: selectedProvider === provider.id }"
             :disabled="providerBlocked(provider.id)"
-            :title="providerBlocked(provider.id) ? provider.detail : provider.detail"
+            :title="provider.detail"
             @click="selectedProvider = provider.id"
           >
             <SourceBadge :provider="provider.id" />
-            <small>{{ provider.mode }} · {{ provider.state }}</small>
+            <small>{{ PROVIDER_MODE_LABELS[provider.mode] ?? provider.mode }} · {{ HEALTH_STATE_LABELS[provider.state] ?? provider.state }}</small>
           </button>
         </div>
 
@@ -73,6 +73,7 @@
           <q-icon :name="submitting ? 'mdi-loading mdi-spin' : 'mdi-radar'" />
           {{ submitting ? 'Contacting worker…' : 'Queue discovery job' }}
         </button>
+        <p v-if="youtubeTextSearchBlocked" class="import-note" role="status">YouTube text search needs a connected API key. Paste a direct public video URL instead, or set the key up on the Providers page.</p>
         <p class="legal-note">Public metadata only. No protected-content bypass, no full-audio download during discovery.</p>
       </section>
 
@@ -88,8 +89,8 @@
               <q-icon :name="job.state === 'running' || job.state === 'queued' ? 'mdi-loading mdi-spin' : job.state === 'error' ? 'mdi-alert-circle-outline' : 'mdi-radar'" />
             </div>
             <div class="job-row__body">
-              <div><strong>{{ job.label }}</strong><span>{{ job.state.toUpperCase() }}</span></div>
-              <small>{{ job.provider }} · {{ job.scanned }} scanned · {{ job.found }} candidates</small>
+              <div><strong>{{ job.label }}</strong><span>{{ statePillLabel('job', job.state) }}</span></div>
+              <small>{{ providerLabel(job.provider) }} · {{ job.scanned }} scanned · {{ job.found }} candidates{{ job.state === 'running' || job.state === 'queued' ? ` · ${job.progress}%` : '' }}</small>
               <small v-if="job.error" class="job-error">{{ job.error }}</small>
               <div class="job-progress"><i :style="{ width: job.progress + '%' }"></i></div>
             </div>
@@ -146,9 +147,7 @@
             <q-icon :name="busySources.has(candidate.source.url) ? 'mdi-loading mdi-spin' : 'mdi-plus'" />
             {{ busySources.has(candidate.source.url)
               ? (autoEnrich ? 'Index + enrich…' : 'Indexing…')
-              : matchingMix(candidate)
-                ? 'Merge source'
-                : 'Add to index' }}
+              : 'Add to index' }}
           </button>
         </article>
       </div>
@@ -165,6 +164,7 @@ import { useMixStore } from '../composables/useMixStore';
 import { CatalogApiError } from '../catalog/api';
 import { useCatalogStore } from '../catalog/store';
 import { toImportCandidate, enrichmentSummary } from '../catalog/views';
+import { providerLabel, statePillLabel, PROVIDER_MODE_LABELS, HEALTH_STATE_LABELS } from '../catalog/presentation';
 import type { ImportJob, ProviderId } from '../domain/types';
 import {
   cancelDiscoveryJob,
@@ -226,10 +226,6 @@ function indexedMix(candidate: ApiMixCandidate) {
   return Object.values(catalog.state.recordCache).find((record) => record.kind === 'mix'
     && record.sources.some((source) => source.provider === candidate.provider
       && (source.externalId === candidate.source.externalId || source.url === candidate.source.url)));
-}
-
-function matchingMix(candidate: ApiMixCandidate) {
-  return indexedMix(candidate);
 }
 
 function providerResourceType(provider: ProviderId) {
@@ -383,8 +379,7 @@ async function importCandidate(candidate: ApiMixCandidate) {
 
 onMounted(async () => {
   try {
-    const [health, authenticated] = await Promise.all([getProviderHealth(), catalog.checkSession()]);
-    updateProviderHealth(health);
+    const authenticated = await catalog.checkSession();
     if (authenticated) {
       const jobs = await getDiscoveryJobs();
       syncApiJobs(jobs);
@@ -396,6 +391,8 @@ onMounted(async () => {
   } catch {
     setApiState('offline');
   }
+  // Provider health is a separate concern from worker reachability.
+  getProviderHealth().then(updateProviderHealth).catch(() => {});
 });
 
 onBeforeUnmount(() => {

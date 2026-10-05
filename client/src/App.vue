@@ -17,7 +17,7 @@
       <div class="rail-status">
         <span class="pulse-dot" :data-state="state.apiState"></span>
         <div>
-          <small>{{ state.apiState === 'online' ? 'WORKER' : 'INDEX STATE' }}</small>
+          <small>{{ state.apiState === 'offline' ? 'LOCAL CACHE' : 'WORKER' }}</small>
           <strong>{{ railStatus }}</strong>
         </div>
       </div>
@@ -37,7 +37,8 @@
       </div>
       <div class="mobile-runtime" :data-state="state.apiState">
         <span></span>{{ runtimeLabel }}
-        <router-link to="/login">{{ authOff ? 'OPEN ACCESS' : catalog.state.authenticated ? 'CURATOR' : 'PUBLIC' }}</router-link>
+        <router-link v-if="!authOff" to="/login">{{ catalog.state.authenticated ? 'CURATOR' : 'PUBLIC' }}</router-link>
+        <span v-else>OPEN ACCESS</span>
       </div>
       <router-view />
     </main>
@@ -72,7 +73,7 @@ const router = useRouter();
 const reviewCount = computed(() => catalog.state.review.length);
 
 const nav = computed(() => [
-  { to: '/', label: 'Library', mobile: 'Library', icon: 'mdi-view-grid-outline', badge: 0 },
+  { to: '/', label: 'Library', mobile: 'Library', icon: 'mdi-view-grid-outline', badge: catalog.state.total },
   { to: '/import', label: 'Import / Crawl', mobile: 'Import', icon: 'mdi-radar', badge: runningJobs.value },
   { to: '/local-tags', label: 'Local Tagger', mobile: 'Tag MP3', icon: 'mdi-folder-music-outline', badge: 0 },
   { to: '/review', label: 'Review Queue', mobile: 'Review', icon: 'mdi-source-merge', badge: reviewCount.value },
@@ -86,15 +87,15 @@ const runtimeLabel = computed(() => {
 });
 
 const railStatus = computed(() => {
-  if (runningJobs.value) return `${runningJobs.value} ${runningJobs.value === 1 ? 'JOB' : 'JOBS'}`;
-  return state.apiState === 'online' ? 'ONLINE / IDLE' : state.apiState === 'checking' ? 'CHECKING' : 'LOCAL ONLY';
+  const jobs = runningJobs.value ? `${runningJobs.value} ${runningJobs.value === 1 ? 'JOB' : 'JOBS'}` : '';
+  const connection = state.apiState === 'online' ? 'ONLINE / IDLE' : state.apiState === 'checking' ? 'CHECKING' : 'LOCAL ONLY';
+  return jobs ? `${jobs} · ${connection}` : connection;
 });
 
 onMounted(async () => {
   setApiState('checking');
   try {
-    const [health, authenticated] = await Promise.all([getProviderHealth(), catalog.checkSession()]);
-    updateProviderHealth(health);
+    const authenticated = await catalog.checkSession();
     if (authenticated) {
       const jobs = await getDiscoveryJobs();
       syncApiJobs(jobs);
@@ -106,6 +107,9 @@ onMounted(async () => {
   } catch {
     setApiState('offline');
   }
+  // Provider health is a separate concern: a slow or unavailable provider registry
+  // must not report the whole worker as offline.
+  getProviderHealth().then(updateProviderHealth).catch(() => {});
 });
 
 async function toggleCurator() {

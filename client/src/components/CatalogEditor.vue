@@ -4,6 +4,7 @@ import type { CatalogRecord } from '@syco23/catalog-domain';
 import { editorDraft, editorFields, parseEditorPatch } from '../catalog/views';
 const props = defineProps<{ record: CatalogRecord; busy?: boolean }>();
 const emit = defineEmits<{ save: [patch: Record<string, unknown>] }>();
+const isDraft = computed(() => props.record.id.startsWith('draft_'));
 const draft = reactive<Record<string, any>>({});
 const error = reactive({ message: '' });
 watch(() => props.record, (record) => { Object.keys(draft).forEach((key) => delete draft[key]); Object.assign(draft, editorDraft(record)); error.message = ''; }, { immediate: true });
@@ -22,7 +23,7 @@ function save() {
 </script>
 <template>
   <section class="panel catalog-editor" data-testid="catalog-editor">
-    <div class="panel-head"><span>CURATOR / REV {{ record.revision }}</span><b>EDIT SOURCED FIELDS</b></div>
+    <div class="panel-head"><span>{{ isDraft ? 'NEW · NOT YET SAVED' : 'CURATOR · REVISION ' + record.revision }}</span><b>EDIT SOURCED FIELDS</b></div>
     <form class="typed-editor" @submit.prevent="save">
       <p class="editor-help">Changes are saved with curator evidence. Dates preserve their precision. Confirm roles and relationship IDs using supporting sources.</p>
       <div v-for="field in fields" :key="field.key" class="editor-field">

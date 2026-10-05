@@ -5,6 +5,7 @@ import { missingFields, normalizeName, type CatalogRecord, type RecordId, type E
 import { useCatalogStore } from '../catalog/store';
 import { catalogApi, type FieldEvidenceEntry } from '../catalog/api';
 import { recordName, recordLink, metadataRows, formatValue, enrichmentSummary } from '../catalog/views';
+import { fieldLabel, providerLabel, KIND_LABELS, VERIFICATION_LABELS, statePillLabel, timeAgo } from '../catalog/presentation';
 import ArtworkFrame from '../components/ArtworkFrame.vue';
 import WaveformStrip from '../components/WaveformStrip.vue';
 import CatalogEditor from '../components/CatalogEditor.vue';
@@ -48,13 +49,15 @@ const duplicateCandidates = computed((): CatalogRecord[] => {
 });
 const recordId = computed(() => String(route.params.id || ''));
 const title = computed(() => record.value ? recordName(record.value) : '');
+const kindLabel = computed(() => record.value ? KIND_LABELS[record.value.kind] ?? record.value.kind : '');
+const verificationLabel = computed(() => record.value ? VERIFICATION_LABELS[record.value.verification] ?? record.value.verification : '');
 const fieldsMissing = computed(() => record.value ? missingFields(record.value) : []);
 const rows = computed(() => record.value ? metadataRows(record.value) : []);
 const heroAsset = computed(() => record.value?.assets.find((asset) => record.value?.kind === 'mix' ? asset.role === 'mix-cover' : record.value?.kind === 'entity' ? ['artist-portrait', 'crew-logo', 'label-logo'].includes(asset.role) : asset.role === 'event-flyer'));
 const waveform = computed(() => record.value?.kind === 'mix' ? record.value.assets.find((asset) => asset.role === 'waveform') : undefined);
 const audioSource = computed(() => record.value?.kind === 'mix' ? [...(record.value.playbackUrls ?? []), ...record.value.sources.map((source) => source.url)].find((source) => typeof source === 'string' && /^https:\/\/(?:[^/]+\.)?(?:freeteknomusic\.org|archive\.org)\//i.test(source) && /\.(?:mp3|flac|ogg|oga|wav|m4a|aac|aif|aiff)(?:[?#]|$)/i.test(source)) : undefined);
-const indexLink = computed(() => record.value?.kind === 'mix' ? '/' : record.value?.kind === 'entity' ? `/${record.value.roles[0]}s` : '/events');
-const sources = computed(() => !record.value ? [] : record.value.kind === 'mix' ? record.value.sources.map((source) => ({ url: source.url, label: source.provider })) : record.value.kind === 'entity' ? record.value.providerRefs.map((source) => ({ url: source.url, label: source.provider })) : record.value.sourceUrls.map((url) => ({ url, label: 'Event source' })));
+const indexLink = computed(() => record.value?.kind === 'mix' ? '/' : record.value?.kind === 'entity' ? `/${record.value.roles[0] ? `${record.value.roles[0]}s` : 'artists'}` : '/events');
+const sources = computed(() => !record.value ? [] : record.value.kind === 'mix' ? record.value.sources.map((source) => ({ url: source.url, label: providerLabel(source.provider) })) : record.value.kind === 'entity' ? record.value.providerRefs.map((source) => ({ url: source.url, label: providerLabel(source.provider) })) : record.value.sourceUrls.map((url) => ({ url, label: 'Event source' })));
 async function loadSupporting(id: RecordId, generation: number) {
   const responses = await Promise.allSettled([catalogApi.getRelated(id), catalogApi.getEvidence(id), catalogApi.getRuns(id), catalog.state.authenticated ? catalogApi.getAnalysisRuns(id) : Promise.resolve([])]);
   if (generation !== loadGeneration) return;
@@ -120,7 +123,7 @@ async function merged(committed: CatalogRecord) { record.value = committed; awai
     <div class="catalog-detail__hero">
       <div class="catalog-detail__art"><ArtworkFrame :src="heroAsset?.url" :alt="title" /></div>
       <div class="catalog-detail__heading">
-        <p class="kicker">{{ record.kind }} / {{ record.verification }}</p><h1>{{ title }}</h1>
+        <p class="kicker">{{ kindLabel }} / {{ verificationLabel }}</p><h1>{{ title }}</h1>
         <p class="catalog-detail__subline" v-if="record.kind === 'mix'">{{ related.filter((item) => item.kind === 'entity').map(recordName).join(' · ') || 'Performers not confirmed' }}</p>
         <p class="catalog-detail__subline" v-else-if="record.kind === 'entity'">{{ record.roles.join(' / ') }}<template v-if="record.country"> · {{ record.country }}</template></p>
         <p class="catalog-detail__subline" v-else>{{ [record.venue, record.locality, record.country].filter(Boolean).join(' · ') || 'Location not recorded' }}</p>
@@ -131,10 +134,10 @@ async function merged(committed: CatalogRecord) { record.value = committed; awai
           <button class="btn" type="button" @click="loadRecord(record.id)">Reload record</button>
         </div>
         <div class="catalog-detail__sources"><a v-for="(source, index) in sources" :key="index" :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.label }} <q-icon name="mdi-open-in-new" size="12px" /></a></div>
-        <small class="record-id">Record ID: {{ record.id }}</small>
+        <small class="record-id">Archive ID: {{ record.id }}</small>
       </div>
     </div>
-    <div class="missing-strip" aria-label="Remaining missing fields"><span>{{ fieldsMissing.length ? 'MISSING' : 'INDEXED' }}</span><b v-if="!fieldsMissing.length">No fields currently missing</b><b v-for="field in fieldsMissing" :key="field">{{ field }}</b></div>
+    <div class="missing-strip" aria-label="Remaining missing fields"><span>{{ fieldsMissing.length ? 'MISSING' : 'NO GAPS' }}</span><b v-if="!fieldsMissing.length">No fields currently missing</b><b v-for="field in fieldsMissing" :key="field">{{ fieldLabel(field) }}</b></div>
     <p v-if="resultSummary" class="enrichment-result" role="status">{{ resultSummary }}</p>
     <p v-if="error" class="catalog-error" role="alert">{{ error }}</p>
     <p v-for="failure in auxiliaryErrors" :key="failure" class="catalog-error" role="alert">{{ failure }}</p>
@@ -148,7 +151,7 @@ async function merged(committed: CatalogRecord) { record.value = committed; awai
       </div>
       <div v-if="catalog.state.authenticated && analysisRuns.length" class="analysis-history" data-testid="analysis-history">
         <article v-for="run in analysisRuns" :key="run.id" class="run-history__item">
-          <strong>{{ run.state.toUpperCase() }} · {{ run.progress }}%</strong><p>{{ run.createdAt }} · {{ run.sourceUrl }}</p>
+          <strong>{{ statePillLabel('analysis', run.state) }} · {{ run.progress }}%</strong><p>Started {{ timeAgo(run.createdAt) }} · {{ run.sourceUrl }}</p>
           <p v-if="run.error" class="catalog-error" role="alert">{{ run.error }}</p>
           <button v-if="['error', 'interrupted'].includes(run.state)" class="btn" type="button" :disabled="analyzing || analysisInProgress" @click="runWaveformAnalysis(run.sourceUrl)">Retry analysis</button>
         </article>
@@ -165,18 +168,18 @@ async function merged(committed: CatalogRecord) { record.value = committed; awai
         <li v-for="candidate in duplicateCandidates" :key="candidate.id">
           <router-link :to="{ path: route.path, query: { ...route.query, duplicate: candidate.id } }">
             {{ candidate.kind === 'mix' ? candidate.title : candidate.kind === 'entity' ? candidate.displayName : candidate.name }}
-            · rev {{ candidate.revision }}
+            · revision {{ candidate.revision }}
           </router-link>
         </li>
       </ul>
     </div>
 
     <div class="catalog-detail__grid">
-      <section class="panel"><div class="panel-head"><span>CANONICAL / REV {{ record.revision }}</span><b>METADATA</b></div>
+      <section class="panel"><div class="panel-head"><span>{{ verificationLabel }} · REVISION {{ record.revision }}</span><b>METADATA</b></div>
         <dl class="meta-table"><div v-for="row in rows" :key="row.field"><dt>{{ row.label }}</dt><dd class="preline">{{ formatValue(row.value) }}</dd></div></dl>
       </section>
       <section class="panel"><div class="panel-head"><span>{{ related.length }} LINKS</span><b>CONNECTED RECORDS</b></div>
-        <div v-if="related.length" class="linked-records"><router-link v-for="item in related" :key="item.id" :to="recordLink(item)"><span>{{ item.kind === 'entity' ? item.roles.join(' / ') : item.kind }}</span><strong>{{ recordName(item) }}</strong><q-icon name="mdi-arrow-top-right" /></router-link></div>
+        <div v-if="related.length" class="linked-records"><router-link v-for="item in related" :key="item.id" :to="recordLink(item)"><span>{{ item.kind === 'entity' ? item.roles.join(' / ') : KIND_LABELS[item.kind] ?? item.kind }}</span><strong>{{ recordName(item) }}</strong><q-icon name="mdi-arrow-top-right" /></router-link></div>
         <div v-else class="panel-empty">No connected records are confirmed yet.</div>
       </section>
     </div>
@@ -185,10 +188,11 @@ async function merged(committed: CatalogRecord) { record.value = committed; awai
       <div class="panel-head"><span>ENRICHMENT / PERSISTED RESULTS</span><b>PROVIDER OUTCOMES</b></div>
       <p v-if="!runs.length" class="panel-empty">No enrichment run is recorded. Missing fields have not yet been checked.</p>
       <article v-for="run in runs" :key="run.id" class="run-history__item">
-        <strong>{{ run.state.toUpperCase() }} · {{ run.startedAt }}</strong><p>Providers attempted: {{ run.attemptedProviders.join(' · ') || 'None usable' }}</p>
-        <p>{{ run.applied }} applied · {{ run.corroborated }} corroborated · {{ run.reviewed }} sent to Review</p>
-        <p>{{ run.missingFields.length ? 'No supported evidence found for remaining gaps: ' + run.missingFields.join(' · ') : 'No fields currently missing' }}</p>
-        <p v-for="(failure, index) in run.errors" :key="index" class="provider-outcome">{{ failure.provider }} unavailable: {{ failure.message }}</p>
+        <strong>{{ statePillLabel('run', run.state) }} · {{ timeAgo(run.startedAt) }}</strong>
+        <p>Providers tried: {{ run.attemptedProviders.map(providerLabel).join(' · ') || 'None usable' }}</p>
+        <p>{{ run.applied }} {{ run.applied === 1 ? 'field' : 'fields' }} added · {{ run.corroborated }} {{ run.corroborated === 1 ? 'source' : 'sources' }} agreed · {{ run.reviewed }} sent to Review</p>
+        <p>{{ run.missingFields.length ? 'Still missing: ' + run.missingFields.map(fieldLabel).join(' · ') : 'No fields currently missing' }}</p>
+        <p v-for="(failure, index) in run.errors" :key="index" class="provider-outcome">{{ providerLabel(failure.provider) }} unavailable: {{ failure.message }}</p>
         <button v-if="catalog.state.authenticated && ['interrupted', 'failed'].includes(run.state)" class="btn" :disabled="enriching" @click="runEnrichment">Retry enrichment</button>
       </article>
     </section>

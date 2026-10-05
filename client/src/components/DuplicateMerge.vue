@@ -39,15 +39,16 @@ async function merge() {
     <div class="duplicate-merge__body">
       <p>Load both records and inspect their values before confirming that they represent the same identity. Sources and evidence are retained; disagreements go to Review. The old ID redirects to the survivor.</p>
       <form data-testid="duplicate-lookup" class="duplicate-lookup" @submit.prevent="lookup">
-        <label for="duplicate-id">Duplicate record ID</label>
+        <label for="duplicate-id">Duplicate Archive ID</label>
         <input id="duplicate-id" v-model="duplicateId" aria-label="Duplicate record ID" required :disabled="busy" />
         <button class="btn" type="submit" :disabled="busy || !duplicateId.trim()">{{ busy ? 'Loading…' : 'Preview duplicate' }}</button>
       </form>
+      <small class="duplicate-hint">Find the Archive ID at the bottom of the other record's detail header, then paste it here to compare both sides before merging.</small>
       <p v-if="error" class="catalog-error" role="alert">{{ error }}</p>
       <div v-if="preview" class="duplicate-comparison">
         <article v-for="(item, index) in [preview.survivor, preview.duplicate]" :key="item.id">
           <strong>{{ index ? 'DUPLICATE' : 'SURVIVOR' }} / REV {{ item.revision }}</strong>
-          <h3>{{ recordName(item) }}</h3><code>{{ item.id }}</code>
+          <h3>{{ recordName(item) }}</h3><code>Archive ID: {{ item.id }}</code>
           <dl class="meta-table"><div v-for="row in metadataRows(item)" :key="row.field"><dt>{{ row.label }}</dt><dd>{{ formatValue(row.value) }}</dd></div></dl>
         </article>
       </div>

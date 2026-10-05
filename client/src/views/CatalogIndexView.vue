@@ -118,7 +118,7 @@ onMounted(() => { void load(); });
 
     <div class="catalog-list-head">
       <strong>{{ catalog.state.total.toLocaleString() }} records</strong>
-      <span>{{ rangeStart }}–{{ rangeEnd }} · sorted by recent activity</span>
+      <span v-if="catalog.state.total">{{ rangeStart }}–{{ rangeEnd }} · sorted by recent activity</span>
     </div>
 
     <div v-if="catalog.state.loading" class="panel-empty" role="status">Loading shared archive…</div>
@@ -132,8 +132,9 @@ onMounted(() => { void load(); });
     </div>
     <div v-else class="empty-state">
       <q-icon name="mdi-database-search-outline" size="38px" />
-      <strong>No {{ title.toLowerCase() }} match this search.</strong>
-      <button class="btn" type="button" @click="query = ''; submitSearch()">Clear search</button>
+      <strong>{{ query ? `No ${title.toLowerCase()} match this search.` : `No ${title.toLowerCase()} are indexed yet.` }}</strong>
+      <button v-if="query" class="btn" type="button" @click="query = ''; submitSearch()">Clear search</button>
+      <router-link v-else-if="kind === 'mix'" class="btn" to="/import"><q-icon name="mdi-plus" /> Discover mixes</router-link>
     </div>
 
     <nav v-if="pageCount > 1" class="catalog-pagination" aria-label="Index pages">

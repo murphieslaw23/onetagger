@@ -40,6 +40,18 @@ Node 22.23.3 worker
 7. A record stores `selectedEvidence` as field → claim id. The claim itself is retrieved separately, so a reader can see which source established a value and why a competing claim was rejected.
 8. Inbound relations are derived on read, not from stored back-references. An entity's connected mixes are computed from the mix records, because a mix that arrived through import or enrichment never wrote a back-pointer.
 
+## Client presentation layer
+
+The browser maps every machine identifier to plain wording through `client/src/catalog/presentation.ts` instead of rendering raw enums, field keys, JSON or internal timestamps. It owns:
+
+- `fieldLabel` — shared labels for the missing-fields strip, the editor, field evidence and Review, so keys like `durationMs`, `cover` and `possibleDuplicate` are never shown to a reader.
+- `providerLabel` and the record-kind, verification, review-state, job/run/analysis-state, health, evidence and disposition label maps.
+- `humanValue` — renders dates with their precision, shortens URLs to their origin and never falls back to `JSON.stringify` for object values.
+- `formatTimestamp` / `timeAgo` — human timestamps for run and claim history.
+- `statePillLabel` / `stateTone` — consumed by the shared `StatePill.vue` so every state uses one consistent wording and colour.
+
+This keeps the data model machine-readable while the interface stays readable for non-technical curators and public readers.
+
 ## Duplicate merge
 
 A curator can merge two confirmed duplicates transactionally. The survivor keeps its selected evidence and receives the duplicate's source identities, claims, review decisions, media and relationships. Where both records hold different values for the same single-valued field, the survivor's value stays selected and the duplicate's value becomes a Review item — a disagreement is never resolved by merge order. The retired id becomes a legacy alias so detail links that were already shared keep resolving, and both revisions are checked so a second curator session cannot merge over newer curation.

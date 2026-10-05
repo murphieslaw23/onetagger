@@ -74,7 +74,7 @@ pnpm build
 
 ## Verification status
 
-The production record documents a healthy IONOS VPS-L rollout, most recently of `master` (`582aea7`) on 2026-10-05 with the Vercel frontend promoted alongside it, persistent catalog storage and the user-selected `AUTH_MODE=off`. See [docs/PRODUCTION_VERIFICATION.md](docs/PRODUCTION_VERIFICATION.md) for the dated runtime evidence and remaining limits.
+The production record documents a healthy IONOS VPS-L rollout with persistent catalog storage and the user-selected `AUTH_MODE=off`. The worker runs the latest server code (`347cfc4`); the Vercel frontend auto-deploys `master` to `https://mixsets.syco23.org`. See [docs/PRODUCTION_VERIFICATION.md](docs/PRODUCTION_VERIFICATION.md) for the dated runtime evidence and remaining limits.
 
 ## Architecture
 

@@ -10,7 +10,7 @@
 
     <div class="section-heading provider-toolbar">
       <div>
-        <span>{{ readyCount }} READY · {{ limitedCount }} LIMITED/OFFLINE</span>
+        <span>{{ readyCount }} READY · {{ limitedCount }} LIMITED · {{ offlineCount }} OFFLINE</span>
         <strong>Provider health</strong>
       </div>
       <button class="btn" :disabled="checking" @click="refresh">
@@ -23,13 +23,13 @@
       <article v-for="provider in state.providers" :key="provider.id" class="provider-card">
         <div class="provider-card__top">
           <SourceBadge :provider="provider.id" />
-          <span class="state-pill" :data-state="provider.state">{{ provider.state }}</span>
+          <StatePill kind="health" :value="provider.state" />
         </div>
         <h2>{{ provider.name }}</h2>
         <p>{{ provider.detail }}</p>
         <dl>
-          <div><dt>MODE</dt><dd>{{ provider.mode }}</dd></div>
-          <div><dt>AUTH</dt><dd>{{ provider.auth }}</dd></div>
+          <div><dt>MODE</dt><dd>{{ PROVIDER_MODE_LABELS[provider.mode] ?? provider.mode }}</dd></div>
+          <div><dt>AUTH</dt><dd>{{ PROVIDER_AUTH_LABELS[provider.auth] ?? provider.auth }}</dd></div>
           <div><dt>LAST CHECK</dt><dd>{{ formatCheck(provider.lastCheck) }}</dd></div>
         </dl>
         <button
@@ -47,7 +47,7 @@
     </div>
 
     <section v-if="setupProvider" id="provider-setup" class="panel provider-setup" aria-label="Provider setup guide">
-      <div class="panel-head"><span>PRIVATE SETUP</span><b>{{ setupProvider.toUpperCase() }}</b></div>
+      <div class="panel-head"><span>PRIVATE SETUP</span><b>{{ providerLabel(setupProvider).toUpperCase() }}</b></div>
       <div class="provider-setup__body">
         <p class="provider-setup__intro">Enter credentials only in the private VPS terminal. This public page never asks for or stores them.</p>
 
@@ -104,15 +104,18 @@ python3 deploy/vps/setup_providers.py youtube</code></pre>
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import SourceBadge from '../components/SourceBadge.vue';
+import StatePill from '../components/StatePill.vue';
 import { useMixStore } from '../composables/useMixStore';
 import { getProviderHealth } from '../services/api';
+import { providerLabel, PROVIDER_MODE_LABELS, PROVIDER_AUTH_LABELS } from '../catalog/presentation';
 import type { ProviderId } from '../domain/types';
 
 const { state, updateProviderHealth, setApiState } = useMixStore();
 const checking = ref(false);
 const setupProvider = ref<ProviderId | null>(null);
 const readyCount = computed(() => state.providers.filter((provider) => provider.state === 'ready').length);
-const limitedCount = computed(() => state.providers.length - readyCount.value);
+const limitedCount = computed(() => state.providers.filter((provider) => provider.state === 'limited').length);
+const offlineCount = computed(() => state.providers.filter((provider) => provider.state === 'offline').length);
 
 function formatCheck(value: string) {
   const date = new Date(value);
