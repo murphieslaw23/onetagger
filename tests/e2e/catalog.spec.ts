@@ -9,7 +9,7 @@ async function login(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   // Provider discovery is an external boundary. Catalog writes/auth/reads below use the real SQLite API.
-  await page.route('**/api/providers', route => route.fulfill({ json: ['freeteknomusic', 'archiveorg', 'soundcloud', 'discogs', 'youtube', 'hearthis'].map(id => ({ id, state: id === 'soundcloud' ? 'limited' : 'ready', detail: 'Deterministic provider boundary for click tests', checkedAt: new Date().toISOString() })) }));
+  await page.route('**/api/providers', route => route.fulfill({ json: ['freeteknomusic', 'archiveorg', 'soundcloud', 'discogs', 'youtube', 'hearthis', 'mixcloud'].map(id => ({ id, state: id === 'soundcloud' ? 'limited' : 'ready', detail: 'Deterministic provider boundary for click tests', checkedAt: new Date().toISOString() })) }));
 });
 
 test('public readers click all five indexes and shared detail links', async ({ page }) => {
@@ -177,4 +177,10 @@ test('stale frontend save displays conflict and preserves the newer curator edit
   await expect(page.locator('dl').getByText('Newer concurrent venue', { exact: true })).toBeVisible();
   await expect(page.locator('dl').getByText('Stale venue must not win', { exact: true })).toHaveCount(0);
   await second.close();
+});
+
+test('providers screen lists the credential-free Mixcloud source', async ({ page }) => {
+  await page.goto('/providers');
+  await expect(page.locator('[data-provider="mixcloud"]')).toBeVisible();
+  await expect(page.getByText(/search and metadata need no credentials at all/)).toBeVisible();
 });

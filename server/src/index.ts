@@ -104,7 +104,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/enrich') {
       const input = await body(req);
       if (typeof input.title !== 'string' || !input.title.trim() || input.title.length > 500 || !Array.isArray(input.artists) || input.artists.length > 100 || input.artists.some((artist:unknown)=>typeof artist!=='string'||artist.length>500)) return json(req, res, 400, { error: 'title and artists are required' });
-      const providerIds: ProviderId[] = ['freeteknomusic', 'soundcloud', 'archiveorg', 'discogs', 'youtube', 'hearthis'];
+      const providerIds: ProviderId[] = ['freeteknomusic', 'soundcloud', 'archiveorg', 'discogs', 'youtube', 'hearthis', 'mixcloud'];
       if (input.providers !== undefined && (!Array.isArray(input.providers) || input.providers.some((provider: unknown) => !providerIds.includes(provider as ProviderId)))) {
         return json(req, res, 400, { error: 'providers must contain only supported provider IDs' });
       }
@@ -165,8 +165,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/api/artwork/preview') {
       const input = await body(req);
-      if (typeof input.url !== 'string' || input.url.length > 2048 || !['soundcloud', 'youtube', 'hearthis'].includes(input.provider)) {
-        return json(req, res, 400, { error: 'Choose SoundCloud, YouTube, or hearthis.at and enter a public track URL' });
+      if (typeof input.url !== 'string' || input.url.length > 2048 || !['soundcloud', 'youtube', 'hearthis', 'mixcloud'].includes(input.provider)) {
+        return json(req, res, 400, { error: 'Choose SoundCloud, YouTube, hearthis.at, or Mixcloud and enter a public track URL' });
       }
       try {
         if (input.provider === 'soundcloud') {
@@ -178,6 +178,12 @@ const server = http.createServer(async (req, res) => {
           const video = await registry.youtube.lookupVideo(input.url);
           return video.artworkUrl ? json(req, res, 200, { provider: 'youtube', sourceUrl: `https://www.youtube.com/watch?v=${video.id}`, title: video.title, artworkUrl: video.artworkUrl })
             : json(req, res, 422, { error: 'That YouTube video has no public thumbnail' });
+        }
+        if (input.provider === 'mixcloud') {
+          const cloudcast = await registry.mixcloud.lookupCloudcast(input.url);
+          const artworkUrl = await registry.mixcloud.lookupArtwork(input.url);
+          return artworkUrl ? json(req, res, 200, { provider: 'mixcloud', sourceUrl: cloudcast.url, title: cloudcast.name, artworkUrl })
+            : json(req, res, 422, { error: 'That Mixcloud show has no cover artwork' });
         }
         const track = await registry.hearthis.lookupTrack(input.url);
         const artworkUrl = await registry.hearthis.lookupArtwork(input.url);

@@ -1,4 +1,4 @@
-export type ProviderId = 'freeteknomusic' | 'soundcloud' | 'archiveorg' | 'discogs' | 'youtube' | 'hearthis';
+export type ProviderId = 'freeteknomusic' | 'soundcloud' | 'archiveorg' | 'discogs' | 'youtube' | 'hearthis' | 'mixcloud';
 
 export interface SourceRef {
   provider: ProviderId;

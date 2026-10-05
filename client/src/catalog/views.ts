@@ -111,7 +111,7 @@ export function duplicatePreview(survivor: CatalogRecord, duplicate: CatalogReco
 }
 
 export function toImportCandidate(candidate: ApiMixCandidate) {
-  const resourceType = candidate.provider === 'youtube' ? 'video' : ['soundcloud', 'hearthis'].includes(candidate.provider) ? 'track' : candidate.provider === 'archiveorg' ? 'item' : 'recording';
+  const resourceType = candidate.provider === 'youtube' ? 'video' : candidate.provider === 'mixcloud' ? 'cloudcast' : ['soundcloud', 'hearthis'].includes(candidate.provider) ? 'track' : candidate.provider === 'archiveorg' ? 'item' : 'recording';
   return ImportCandidateSchema.parse({
     provider: candidate.provider, title: candidate.title, artists: candidate.artists ?? [], crews: candidate.crews ?? [],
     durationMs: candidate.durationMs, recordedAt: candidate.recordedAt, description: candidate.description,

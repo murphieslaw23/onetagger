@@ -7,7 +7,8 @@ export const ProviderIdSchema = z.enum([
   'archiveorg',
   'discogs',
   'youtube',
-  'hearthis'
+  'hearthis',
+  'mixcloud'
 ]);
 
 export const EntityRoleSchema = z.enum(['artist', 'crew', 'label']);

@@ -20,6 +20,7 @@ The active web product no longer contains OneTagger's AutoTagger, QuickTag, trac
 - **Discogs** — artist / crew-like artist / label enrichment and images, not long-mix track matching.
 - **YouTube** — known public video metadata and thumbnails without credentials; text search with a private Data API key.
 - **hearthis.at** — public track search, metadata and track artwork without credentials, subject to provider limits.
+- **Mixcloud** — public read API for long-form cloudcast search and metadata; no credentials are required at all.
 
 See [docs/PROVIDERS.md](docs/PROVIDERS.md).
 

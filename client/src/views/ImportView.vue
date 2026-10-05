@@ -235,6 +235,7 @@ function matchingMix(candidate: ApiMixCandidate) {
 function providerResourceType(provider: ProviderId) {
   if (provider === 'youtube') return 'video';
   if (provider === 'soundcloud' || provider === 'hearthis') return 'track';
+  if (provider === 'mixcloud') return 'cloudcast';
   if (provider === 'archiveorg') return 'item';
   return 'recording';
 }

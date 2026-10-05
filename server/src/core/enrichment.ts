@@ -93,7 +93,7 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
       attempted.push(id);
       try {
         const health = await provider.health();
-        if (health.state === 'offline' || (['soundcloud', 'youtube', 'hearthis'].includes(id) && health.state !== 'ready')) {
+        if (health.state === 'offline' || (['soundcloud', 'youtube', 'hearthis', 'mixcloud'].includes(id) && health.state !== 'ready')) {
           failures.push({ provider: id, error: health.detail });
           return;
         }
@@ -130,10 +130,10 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
   }
 
   if (!(input.artwork || []).length) {
-    for (const source of (input.sources || []).filter((item) => ['soundcloud', 'youtube', 'hearthis'].includes(item.provider))) {
+    for (const source of (input.sources || []).filter((item) => ['soundcloud', 'youtube', 'hearthis', 'mixcloud'].includes(item.provider))) {
       attempted.push(source.provider);
       try {
-        const resolver = source.provider === 'youtube' ? registry.youtube : source.provider === 'hearthis' ? registry.hearthis : registry.soundcloud;
+        const resolver = source.provider === 'youtube' ? registry.youtube : source.provider === 'hearthis' ? registry.hearthis : source.provider === 'mixcloud' ? registry.mixcloud : registry.soundcloud;
         const url = await resolver.lookupArtwork(source.url);
         if (url) {
           artwork.push({ url, provider: source.provider, kind: 'cover' });

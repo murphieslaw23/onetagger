@@ -9,13 +9,14 @@ import { ArchiveOrgProvider } from '../../server/src/providers/archiveorg.js';
 import { DiscogsEnricher } from '../../server/src/providers/discogs.js';
 import { FreeteknomusicProvider } from '../../server/src/providers/freeteknomusic.js';
 import { HearthisProvider } from '../../server/src/providers/hearthis.js';
+import { MixcloudProvider } from '../../server/src/providers/mixcloud.js';
 import { SoundCloudProvider } from '../../server/src/providers/soundcloud.js';
 import { YouTubeProvider } from '../../server/src/providers/youtube.js';
 import type { CatalogRecord, ProviderRef } from '@syco23/catalog-domain';
 
 // A deterministic external provider boundary; all catalog/auth/routes/SQLite code remains real.
 const nowForProvider = () => new Date().toISOString();
-ProviderRegistry.prototype.health = async () => ['freeteknomusic', 'archiveorg', 'soundcloud', 'discogs', 'youtube', 'hearthis'].map(id => ({ id: id as any, state: id === 'youtube' ? 'ready' : 'offline', detail: 'Disposable e2e provider fixture', checkedAt: nowForProvider() }));
+ProviderRegistry.prototype.health = async () => ['freeteknomusic', 'archiveorg', 'soundcloud', 'discogs', 'youtube', 'hearthis', 'mixcloud'].map(id => ({ id: id as any, state: id === 'youtube' ? 'ready' : 'offline', detail: 'Disposable e2e provider fixture', checkedAt: nowForProvider() }));
 ProviderRegistry.prototype.search = async function(providerId, query) {
   if (providerId !== 'youtube') return [];
   const id = query.url ? new URL(query.url).searchParams.get('v') || 'e2eImport01' : 'e2eImport01';
@@ -41,6 +42,10 @@ SoundCloudProvider.prototype.health = async () => ({ id: 'soundcloud', state: 'l
 SoundCloudProvider.prototype.search = async () => [];
 SoundCloudProvider.prototype.resolvePublicArtwork = async () => ({ sourceUrl: '', artworkUrl: undefined });
 SoundCloudProvider.prototype.lookupArtwork = async () => undefined;
+MixcloudProvider.prototype.health = offlineHealth('mixcloud');
+MixcloudProvider.prototype.search = async () => [];
+MixcloudProvider.prototype.lookupCloudcast = async () => { throw new Error('Disposable e2e provider fixture'); };
+MixcloudProvider.prototype.lookupArtwork = async () => undefined;
 DiscogsEnricher.prototype.health = offlineHealth('discogs');
 DiscogsEnricher.prototype.enrichEntity = async () => [];
 DiscogsEnricher.prototype.hydrateEntity = async () => undefined;

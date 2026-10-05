@@ -96,7 +96,7 @@ python3 deploy/vps/setup_providers.py youtube</code></pre>
 
     <section class="panel limits-panel">
       <div class="panel-head"><span>INDEXING RULE</span><b>NO INVISIBLE SCRAPING</b></div>
-      <p>SoundCloud search needs official API credentials; a known public track link can supply its cover. YouTube text search needs a Google API key, while known video links work without one. hearthis.at uses its public API and may rate-limit. Discogs enriches artist profiles. Archive.org uses its public APIs. Freeteknomusic uses bounded HTTP directory listings.</p>
+      <p>SoundCloud search needs official API credentials; a known public track link can supply its cover. YouTube text search needs a Google API key, while known video links work without one. hearthis.at uses its public API and may rate-limit. Mixcloud uses its public read API — search and metadata need no credentials at all. Discogs enriches artist profiles. Archive.org uses its public APIs. Freeteknomusic uses bounded HTTP directory listings.</p>
     </section>
   </section>
 </template>

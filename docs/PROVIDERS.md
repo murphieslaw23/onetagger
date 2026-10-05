@@ -26,6 +26,10 @@ Enable YouTube Data API v3 in [Google Cloud](https://developers.google.com/youtu
 
 Uses the public `api-v2.hearthis.at` search and track endpoints; no account is required. Only images under the track-image path are considered cover artwork. Uploader avatars and unrelated broad search results are not used as canonical covers. Public API rate limits can temporarily make search unavailable. The adapter never proposes a performing artist: the uploader is recorded separately as the uploader. Known public track URLs resolve server-side through `POST /api/artwork/preview`; there is currently no detail-view control that previews or links them.
 
+## Mixcloud
+
+Uses the public read API at `api.mixcloud.com` — reading (search, show metadata) requires **no credentials**; only writes would need OAuth, which this archive never performs. `GET /search/?q=…&type=cloudcast` returns long-form cloudcasts, and a known `mixcloud.com/<user>/<show>/` URL resolves through the same host as an object lookup. It captures the show name, `audio_length` (upload duration), upload `created_time`, description, tags and `pictures` artwork. The uploader/host is recorded as the uploader and is never proposed as a performing artist; `audio_length` and `created_time` are upload facts and are never promoted to a recording date. Artwork URLs are only accepted from `*.mixcloud.com`. Read rate limits can temporarily make search unavailable. Known public show URLs resolve server-side through `POST /api/artwork/preview`.
+
 ## Internet Archive
 
 Uses `/advancedsearch.php` for discovery and `/metadata/{identifier}` for item metadata/files. It captures creator/title/date/description/subjects/collections and identifies plausible audio/image files without downloading complete audio. The Archive.org `date` field is treated as a recording date (unlike SoundCloud, where creation time is recorded as an upload date). The minimum-duration filter is only applied to items whose audio file metadata reports a duration, so items without a known length pass through unfiltered.

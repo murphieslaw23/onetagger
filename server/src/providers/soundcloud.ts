@@ -61,7 +61,7 @@ export class SoundCloudProvider implements DiscoveryProvider {
     }
   }
 
-  async resolvePublicArtwork(sourceUrl: string, signal?: AbortSignal): Promise<{ sourceUrl: string; title?: string; artworkUrl?: string }> {
+  async resolvePublicArtwork(sourceUrl: string, signal?: AbortSignal): Promise<{ sourceUrl: string; title?: string; description?: string; authorName?: string; externalId?: string; artworkUrl?: string }> {
     let source: URL;
     try {
       source = new URL(sourceUrl);
@@ -81,14 +81,21 @@ export class SoundCloudProvider implements DiscoveryProvider {
     url.search = new URLSearchParams({ format: 'json', url: source.toString() }).toString();
     const response = await withTimeout((inner) => fetch(url, { signal: inner, headers: { accept: 'application/json' } }), 12_000, signal);
     if (!response.ok) throw new Error(`SoundCloud oEmbed ${response.status} ${response.statusText || 'request rejected'}`);
-    const payload = await response.json() as { title?: string; thumbnail_url?: string };
-    if (!payload.thumbnail_url) return { sourceUrl: source.toString(), title: payload.title };
+    const payload = await response.json() as { title?: string; description?: string; author_name?: string; thumbnail_url?: string; html?: string };
+    // The embed HTML carries the numeric resource id, so a known public link gets a
+    // stable provider identity even without app credentials.
+    const externalId = /api\.soundcloud\.com(?:%2f|\/)(?:tracks|playlists)(?:%2f|\/)(\d+)/i.exec(payload.html || '')?.[1];
+    const description = payload.description
+      ? payload.description.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim() || undefined
+      : undefined;
+    const resolved = { sourceUrl: source.toString(), title: payload.title, description, authorName: payload.author_name, externalId };
+    if (!payload.thumbnail_url) return resolved;
     const thumbnail = new URL(payload.thumbnail_url);
     // oEmbed may return the uploader avatar when the track has no cover.
     const artworkUrl = thumbnail.hostname.endsWith('.sndcdn.com') && thumbnail.pathname.startsWith('/artworks-')
       ? thumbnail.toString()
       : undefined;
-    return { sourceUrl: source.toString(), title: payload.title, artworkUrl };
+    return { ...resolved, artworkUrl };
   }
 
   async lookupArtwork(sourceUrl: string, signal?: AbortSignal): Promise<string | undefined> {
@@ -100,8 +107,11 @@ export class SoundCloudProvider implements DiscoveryProvider {
     if (!q && !query.url) return [];
     if (query.url && !process.env.SOUNDCLOUD_ACCESS_TOKEN && !(process.env.SOUNDCLOUD_CLIENT_ID && process.env.SOUNDCLOUD_CLIENT_SECRET)) {
       const result=await this.resolvePublicArtwork(query.url,signal);
-      return [{provider:this.id,title:result.title??'SoundCloud recording',artists:[],crews:[],artwork:result.artworkUrl?[result.artworkUrl]:[],
-        source:{provider:this.id,url:result.sourceUrl},confidence:.9,reasons:['Known public artwork capability; metadata search unavailable'],raw:{}}];
+      return [{provider:this.id,title:result.title??'SoundCloud recording',artists:[],crews:[],description:result.description,uploader:result.authorName,
+        artwork:result.artworkUrl?[result.artworkUrl]:[],
+        source:{provider:this.id,url:result.sourceUrl,externalId:result.externalId},
+        ...(result.externalId?{externalIds:{soundcloud:result.externalId}}:{}),
+        confidence:.9,reasons:['Known public URL resolved via oEmbed without credentials'],raw:{}}];
     }
     const params = new URLSearchParams({
       q,
