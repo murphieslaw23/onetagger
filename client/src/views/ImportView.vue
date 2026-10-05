@@ -164,6 +164,7 @@ import SourceBadge from '../components/SourceBadge.vue';
 import { useMixStore } from '../composables/useMixStore';
 import { CatalogApiError } from '../catalog/api';
 import { useCatalogStore } from '../catalog/store';
+import { toImportCandidate, enrichmentSummary } from '../catalog/views';
 import type { ImportJob, ProviderId } from '../domain/types';
 import {
   cancelDiscoveryJob,
@@ -222,7 +223,7 @@ function duration(ms: number) {
 }
 
 function indexedMix(candidate: ApiMixCandidate) {
-  return catalog.state.records.find((record) => record.kind === 'mix'
+  return Object.values(catalog.state.recordCache).find((record) => record.kind === 'mix'
     && record.sources.some((source) => source.provider === candidate.provider
       && (source.externalId === candidate.source.externalId || source.url === candidate.source.url)));
 }
@@ -349,25 +350,7 @@ async function runJobAction(job: ImportJob) {
 async function importCandidate(candidate: ApiMixCandidate) {
   busySources.value.add(candidate.source.url);
   try {
-    const imported = await catalog.importCandidate({
-      provider: candidate.provider,
-      title: candidate.title,
-      artists: candidate.artists || [],
-      crews: candidate.crews || [],
-      durationMs: candidate.durationMs,
-      recordedAt: candidate.recordedAt,
-      description: candidate.description,
-      genres: candidate.genres || [],
-      artwork: candidate.artwork || [],
-      source: {
-        provider: candidate.provider,
-        resourceType: providerResourceType(candidate.provider),
-        externalId: candidate.source.externalId || candidate.source.url,
-        url: candidate.source.url
-      },
-      confidence: candidate.confidence,
-      reasons: candidate.reasons || []
-    });
+    const imported = await catalog.importCandidate(toImportCandidate(candidate));
     const mix = imported.record;
     if (mix.kind !== 'mix') throw new Error('The server returned a non-mix record for this import');
     if (!autoEnrich.value) {
@@ -375,17 +358,13 @@ async function importCandidate(candidate: ApiMixCandidate) {
       return;
     }
 
-    const summary = await catalog.enrichRecord(mix.id);
-    const message = summary.applied
-      ? `${summary.applied} field(s) added`
-      : 'No fields added';
-    const review = summary.reviewed ? ` · ${summary.reviewed} claim(s) sent to Review` : '';
-    const failures = summary.errors.length ? ` · ${summary.errors.length} provider result(s) unavailable` : '';
-    $q.notify({
-      message: `Indexed “${mix.title}”: ${message}${review}${failures} · ${summary.missingFields.length} fields still missing`,
-      position: 'top-right',
-      timeout: 7000,
-    });
+    try {
+      const summary = await catalog.enrichRecord(mix.id);
+      $q.notify({ message: `Indexed “${mix.title}”: ${enrichmentSummary(summary)}`, position: 'top-right', timeout: 7000,
+        actions: summary.reviewed ? [{ label: 'Review', handler: () => router.push('/review') }] : [] });
+    } catch (enrichmentError) {
+      $q.notify({ type: 'warning', message: `“${mix.title}” is indexed. Enrichment did not complete: ${enrichmentError instanceof Error ? enrichmentError.message : String(enrichmentError)}. Open the indexed record to retry.`, timeout: 7000 });
+    }
   } catch (error) {
     if (error instanceof CatalogApiError && error.status === 401) {
       await router.push('/login?redirect=/import');

@@ -15,8 +15,13 @@ def validate(database: sqlite3.Connection) -> None:
 
 
 def main() -> int:
+    if len(sys.argv) == 5 and sys.argv[3] == '--media-dir':
+        from catalog_bundle import backup_bundle
+        backup_bundle(Path(sys.argv[1]).resolve(strict=True), Path(sys.argv[2]).resolve(), Path(sys.argv[4]).resolve(strict=True))
+        print('Verified database and media bundle written.')
+        return 0
     if len(sys.argv) != 3:
-        print("Usage: backup_catalog.py DATABASE BACKUP", file=sys.stderr)
+        print("Usage: backup_catalog.py DATABASE BACKUP [--media-dir MEDIA]", file=sys.stderr)
         return 2
     source = Path(sys.argv[1]).resolve(strict=True)
     destination = Path(sys.argv[2]).resolve()

@@ -1,3 +1,4 @@
+import { providerFailureMessage } from './utils.js';
 import type { EntityRef, MixCandidate, ProviderId, SourceRef } from '../domain.js';
 import { normalizeQuery, overlapScore } from './utils.js';
 import type { ProviderRegistry } from './registry.js';
@@ -99,7 +100,7 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
         const results = await provider.search(query);
         candidates.push(...results.filter((candidate) => candidate.confidence >= 0.5));
       } catch (error) {
-        failures.push({ provider: id, error: error instanceof Error ? error.message : String(error) });
+        failures.push({ provider: id, error: providerFailureMessage(error) });
       }
     });
 
@@ -123,7 +124,7 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
           provenance.push({ provider: 'freeteknomusic', field: 'durationMs', confidence: 0.99, sourceUrl: audio.url });
         }
       } catch (error) {
-        failures.push({ provider: 'freeteknomusic', error: error instanceof Error ? error.message : String(error) });
+        failures.push({ provider: 'freeteknomusic', error: providerFailureMessage(error) });
       }
     }
   }
@@ -140,7 +141,7 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
           break;
         }
       } catch (error) {
-        failures.push({ provider: source.provider, error: error instanceof Error ? error.message : String(error) });
+        failures.push({ provider: source.provider, error: providerFailureMessage(error) });
       }
     }
   }
@@ -218,14 +219,14 @@ export async function enrichMix(registry: ProviderRegistry, input: MixEnrichment
               if (exact.externalId && !externalIds[idKey]) externalIds[idKey] = exact.externalId;
               if (exact.url) addedSources.set(`discogs:${exact.url}`, { provider: 'discogs', url: exact.url, externalId: exact.externalId });
             } catch (error) {
-              failures.push({ provider: 'discogs', error: error instanceof Error ? error.message : String(error) });
+              failures.push({ provider: 'discogs', error: providerFailureMessage(error) });
               break;
             }
           }
         }
       }
     } catch (error) {
-      failures.push({ provider: 'discogs', error: error instanceof Error ? error.message : String(error) });
+      failures.push({ provider: 'discogs', error: providerFailureMessage(error) });
     }
   }
 
