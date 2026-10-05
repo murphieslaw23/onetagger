@@ -53,5 +53,31 @@ class CatalogBundleTests(unittest.TestCase):
             self.assertFalse((root / 'bundle').exists())
 
 
+    def test_bundle_snapshot_includes_wal_resident_records(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / 'catalog.sqlite'
+            media = root / 'media'
+            media.mkdir()
+            live = sqlite3.connect(database)
+            live.execute('PRAGMA journal_mode=WAL')
+            live.execute('CREATE TABLE baseline(id TEXT)')
+            live.commit()
+            live.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+            live.execute('CREATE TABLE records(id TEXT PRIMARY KEY)')
+            live.execute("INSERT INTO records VALUES ('wal-only')")
+            live.commit()
+            try:
+                self.assertGreater((root / 'catalog.sqlite-wal').stat().st_size, 0)
+                backup = root / 'bundle'
+                result = subprocess.run([sys.executable, str(SCRIPTS / 'backup_catalog.py'), str(database), str(backup), '--media-dir', str(media)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                with sqlite3.connect(backup / 'catalog.sqlite') as connection:
+                    self.assertEqual(connection.execute('SELECT id FROM records').fetchone()[0], 'wal-only')
+                    self.assertNotEqual(connection.execute('PRAGMA journal_mode').fetchone()[0], 'wal')
+            finally:
+                live.close()
+
+
 if __name__ == '__main__':
     unittest.main()

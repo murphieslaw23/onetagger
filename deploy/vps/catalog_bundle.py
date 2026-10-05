@@ -41,10 +41,13 @@ def backup_bundle(source, destination, media):
     stage = Path(tempfile.mkdtemp(prefix='.catalog-backup-', dir=destination.parent))
     try:
         database = stage / 'catalog.sqlite'
-        with sqlite3.connect(f'file:{source.as_posix()}?mode=ro', uri=True, timeout=30) as live:
-            with sqlite3.connect(database, timeout=30) as snapshot:
-                live.backup(snapshot, pages=256, sleep=0.05)
-                validate(snapshot)
+        # Read the live database through a read-write connection so SQLite reads the
+        # write-ahead log; a read-only connection can miss WAL-resident schema and rows.
+        # VACUUM INTO yields a self-contained snapshot with no sidecar WAL dependency.
+        with sqlite3.connect(source, timeout=30) as live:
+            live.execute('VACUUM INTO ?', (str(database),))
+        with sqlite3.connect(database, timeout=30) as snapshot:
+            validate(snapshot)
         os.chmod(database, 0o600)
         (stage / 'media').mkdir(mode=0o700)
         hashes = {'catalog.sqlite': digest(database)}
