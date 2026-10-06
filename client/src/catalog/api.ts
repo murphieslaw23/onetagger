@@ -146,6 +146,15 @@ export const catalogApi = {
     return ReviewItemSchema.parse(await request(`/catalog/review/${encodeURIComponent(id)}/refresh`, { method: 'POST', body: '{}' }));
   },
 
+  /** Finalize a completed/review import job: create the catalog record, convert evidence to claims, apply merge. */
+  async finalize(id: string, curatorPassword: string): Promise<CatalogRecord> {
+    const response = await request(`/imports/${encodeURIComponent(id)}/finalize`, {
+      method: 'POST',
+      body: JSON.stringify({ curatorPassword }),
+    });
+    return CatalogRecordSchema.parse(response);
+  },
+
   /**
    * Curator-confirmed duplicate merge. Both revisions are sent so a concurrent
    * curation session cannot be merged over, and the retired id resolves to the

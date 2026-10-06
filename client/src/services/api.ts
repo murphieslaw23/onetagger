@@ -1,4 +1,4 @@
-import type { EntityRef, ProviderId } from '../domain/types';
+import type { EntityRef, ProviderId, CatalogRecord } from '../domain/types';
 
 export interface ApiMixCandidate {
   provider: ProviderId;
@@ -169,5 +169,23 @@ export function createWaveformJob(sourceUrl: string) {
 
 export function getWaveformJob(id: string) {
   return request<ApiWaveformJob>(`/waveforms/${encodeURIComponent(id)}`);
+}
+
+export interface FinalizeImportJobInput {
+  curatorPassword: string;
+}
+
+export interface FinalizeImportJobResult {
+  record: CatalogRecord;
+  mixId: string;
+  claimsApplied: number;
+}
+
+export async function finalizeImportJob(id: string, input: FinalizeImportJobInput): Promise<FinalizeImportJobResult> {
+  const raw = await request<FinalizeImportJobResult>(`/imports/${encodeURIComponent(id)}/finalize`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return raw;
 }
 

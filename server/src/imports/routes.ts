@@ -4,7 +4,11 @@ import {
   PROVIDER_CAPABILITIES,
   ScoredEvidenceSchema,
   terminalImportState,
+  type CatalogRecord,
+  type ImportJob,
   type ImportJobState,
+  type ImportCandidate,
+  type ScoredEvidence,
 } from '@syco23/catalog-domain';
 import type { CatalogRepository } from '../catalog/repository.js';
 import type { CuratorAuth } from '../auth/curator.js';
@@ -12,6 +16,7 @@ import {
   applyCorsHeaders,
   isAllowedOrigin,
   readJsonBody,
+  readRequestBytes,
   sendJson,
 } from '../http.js';
 import {
@@ -21,6 +26,7 @@ import {
   parseImportRequest,
 } from './policy.js';
 import { WorkerAuthError, authenticateWorker, workerBodyText } from './service-auth.js';
+import { createImportStore, extensionFromMime, objectKey, sha256 } from './storage.js';
 
 export interface ImportRouteContext {
   repository: CatalogRepository;
@@ -71,6 +77,20 @@ function jobView(context: ImportRouteContext, id: string) {
   };
 }
 
+function originalObjectKey(context: ImportRouteContext, jobId: string): string | undefined {
+  return context.repository.listImportArtifacts(jobId).find((artifact) => artifact.role === 'original')?.objectKey;
+}
+
+function workSpec(context: ImportRouteContext, job: NonNullable<ReturnType<CatalogRepository['getImportJob']>>) {
+  const original = originalObjectKey(context, job.id);
+  return {
+    job: { ...job, attempt: job.attempt + 1 },
+    limits: importLimits(),
+    capabilities: PROVIDER_CAPABILITIES,
+    ...(original ? { originalObjectKey: original } : {}),
+  };
+}
+
 function parseError(error: unknown): { status: number; body: unknown } {
   if (error instanceof ImportValidationError) return { status: error.statusCode, body: { error: error.message } };
   if (error instanceof WorkerAuthError) return { status: error.statusCode, body: { error: error.message } };
@@ -105,7 +125,8 @@ async function handleCreate(context: ImportRouteContext, request: IncomingMessag
     }
     const actor = context.auth.authenticate(request)!;
     const policy = decideImportPolicy(request0);
-    const state: ImportJobState = policy.allowed ? 'queued' : 'blocked_policy';
+    const waitingForOriginal = policy.allowed && request0.source.provider === 'user_upload';
+    const state: ImportJobState = policy.allowed ? (waitingForOriginal ? 'created' : 'queued') : 'blocked_policy';
     const now = new Date().toISOString();
     const sourceUrl = request0.source.url ?? `urn:syco23:upload:${request0.source.uploadId}`;
     const job = context.repository.createImportJob(ImportJobSchema.parse({
@@ -138,15 +159,121 @@ async function handleCreate(context: ImportRouteContext, request: IncomingMessag
       attestationVersion: request0.rights.attestationVersion,
       ...(request0.rights.proofObjectKey ? { proofObjectKey: request0.rights.proofObjectKey } : {}),
     });
-    if (policy.allowed) {
+    if (policy.allowed && !waitingForOriginal) {
       context.repository.enqueueImportJob(job.id);
-    } else {
+    } else if (!policy.allowed) {
       context.repository.appendImportEvent(job.id, 'blocked_policy', { reason: policy.reason });
+    } else {
+      context.repository.appendImportEvent(job.id, 'awaiting_original', { uploadId: request0.source.uploadId });
     }
     sendJson(response, 202, {
       ...jobView(context, job.id),
       policy: { allowed: policy.allowed, reason: policy.reason, capabilities: policy.capabilities },
     });
+  } catch (error) {
+    const parsed = parseError(error);
+    sendJson(response, parsed.status, parsed.body);
+  }
+}
+
+async function handleFinalize(
+  context: ImportRouteContext,
+  request: IncomingMessage,
+  response: ServerResponse,
+  id: string,
+) {
+  if (!requireEnabled(context, response)) return;
+  if (!requireCurator(context, request, response)) return;
+  try {
+    const job = context.repository.getImportJob(id);
+    if (!job) {
+      sendJson(response, 404, { error: 'Import job not found' });
+      return;
+    }
+    if (job.state !== 'completed' && job.state !== 'review') {
+      sendJson(response, 409, { error: `Job must be completed or in review to finalize (state ${job.state})` });
+      return;
+    }
+
+    // Read artifacts and evidence scores
+    const artifacts = context.repository.listImportArtifacts(job.id);
+    const evidenceScores = context.repository.listImportEvidenceScores(job.id) as unknown as ScoredEvidence[];
+    const artifactMap = new Map<string, { role: string; objectKey: string }>();
+    for (const art of artifacts) {
+      artifactMap.set(art.id, { role: art.role, objectKey: art.objectKey });
+    }
+
+    const { importCandidate } = await import('../catalog/identity.js');
+    const { claimsFromImportJob } = await import('../catalog/provider-claims.js');
+    const { applyClaims } = await import('../catalog/merge.js');
+    const { randomUUID } = await import('node:crypto');
+
+    let mixId = job.mixId;
+    if (!mixId) {
+      // Create a new catalog record from this job
+      const actor = context.auth.authenticate(request)!;
+      const now = new Date().toISOString();
+      const id = `mix_${randomUUID()}`;
+
+      // user_upload jobs create the record directly (source is a private URN, not httpUrl)
+      if (job.provider === 'user_upload') {
+        const record: CatalogRecord = {
+          kind: 'mix', id, createdAt: now, updatedAt: now, revision: 1,
+          verification: 'curator-confirmed', reviewState: 'ready', title: 'Imported mix',
+          people: [], eventIds: [], genres: [], styles: [], assets: [], sources: [{
+            provider: 'freeteknomusic',
+            resourceType: 'recording',
+            externalId: job.sourceExternalId ?? job.sourceUrl,
+            url: job.sourceUrl,
+            addedAt: now,
+          }],
+        };
+        context.repository.transaction((tx) => {
+          tx.saveRecord(record);
+          tx.addProviderSource(record.id, { provider: 'freeteknomusic', resourceType: 'recording', externalId: job.sourceExternalId ?? job.sourceUrl, url: undefined });
+        });
+        mixId = record.id;
+        context.repository.updateImportJobState(job.id, job.state, { mixId });
+      } else {
+        // Catalog providers go through importCandidate (source is httpUrl).
+        // job.provider is narrowed to the catalog provider union here.
+        const provider = job.provider as 'freeteknomusic' | 'soundcloud' | 'archiveorg' | 'discogs' | 'youtube' | 'hearthis';
+        const url = job.sourceUrl ?? '';
+        const externalId = job.sourceExternalId ?? url;
+        const candidate: ImportCandidate = {
+          provider,
+          title: artifacts.find(a => a.role === 'metadata') ? 'Imported mix' : url,
+          artists: [],
+          crews: [],
+          durationMs: undefined,
+          recordedAt: undefined,
+          description: undefined,
+          genres: [],
+          artwork: [],
+          source: {
+            provider,
+            resourceType: 'recording',
+            externalId,
+            url,
+          },
+          confidence: 0.8,
+          reasons: ['Imported via durable import job'],
+        };
+        const result = importCandidate(context.repository, candidate, actor);
+        mixId = result.record.id;
+        context.repository.updateImportJobState(job.id, job.state, { mixId });
+      }
+    }
+
+    // Convert worker evidence to claims and apply merge policy
+    const claims = claimsFromImportJob(job, evidenceScores, artifactMap, mixId) || [];
+    if (claims.length > 0) {
+      applyClaims(context.repository, claims);
+    }
+
+    // Return the updated record
+    const record = context.repository.getRecord(mixId);
+    sendJson(response, 200, { record, mixId, claimsApplied: claims.length });
   } catch (error) {
     const parsed = parseError(error);
     sendJson(response, parsed.status, parsed.body);
@@ -198,6 +325,65 @@ async function handleJobAction(
   }
 }
 
+async function handleOriginal(
+  context: ImportRouteContext,
+  request: IncomingMessage,
+  response: ServerResponse,
+  id: string,
+) {
+  if (!requireEnabled(context, response)) return;
+  if (!requireCurator(context, request, response)) return;
+  try {
+    const job = context.repository.getImportJob(id);
+    if (!job) {
+      sendJson(response, 404, { error: 'Import job not found' });
+      return;
+    }
+    if (job.provider !== 'user_upload') {
+      sendJson(response, 409, { error: 'Only user-upload jobs accept an original object' });
+      return;
+    }
+    if (job.state !== 'created') {
+      sendJson(response, 409, { error: `Job is not awaiting an original (state ${job.state})` });
+      return;
+    }
+    const existing = originalObjectKey(context, job.id);
+    if (existing) {
+      sendJson(response, 200, jobView(context, job.id));
+      return;
+    }
+    const mimeType = typeof request.headers['content-type'] === 'string' ? request.headers['content-type'] : '';
+    const extension = extensionFromMime(mimeType);
+    if (!extension) {
+      sendJson(response, 415, { error: 'Unsupported original audio type' });
+      return;
+    }
+    const bytes = await readRequestBytes(request, importLimits().maxInputBytes);
+    if (!bytes.length) {
+      sendJson(response, 400, { error: 'Original object is empty' });
+      return;
+    }
+    const digest = sha256(bytes);
+    const key = objectKey(job.id, 'original', digest, extension);
+    await createImportStore().putPrivate(key, bytes, digest);
+    context.repository.registerImportArtifact({
+      id: newImportId('art'),
+      jobId: job.id,
+      role: 'original',
+      objectKey: key,
+      sha256: digest,
+      mimeType: mimeType.split(';')[0].trim().slice(0, 120),
+      sizeBytes: bytes.length,
+    });
+    context.repository.updateImportJobState(job.id, 'queued');
+    context.repository.enqueueImportJob(job.id);
+    sendJson(response, 201, jobView(context, job.id));
+  } catch (error) {
+    const parsed = parseError(error);
+    sendJson(response, parsed.status, parsed.body);
+  }
+}
+
 async function readWorkerBody(request: IncomingMessage): Promise<Record<string, unknown>> {
   const stashed = workerBodyText(request);
   if (stashed !== undefined) {
@@ -230,11 +416,7 @@ async function handleWorkerNext(context: ImportRouteContext, request: IncomingMe
       return;
     }
     context.repository.appendImportEvent(job.id, 'claimed', { workerId });
-    sendJson(response, 200, {
-      job: { ...job, attempt: job.attempt + 1 },
-      limits: importLimits(),
-      capabilities: PROVIDER_CAPABILITIES,
-    });
+    sendJson(response, 200, workSpec(context, job));
   } catch (error) {
     const parsed = parseError(error);
     sendJson(response, parsed.status, parsed.body);
@@ -266,11 +448,7 @@ async function handleWorker(
         sendJson(response, 409, { error: `Job is not workable (state ${job.state})` });
         return;
       }
-      sendJson(response, 200, {
-        job: { ...job, attempt: job.attempt + 1 },
-        limits: importLimits(),
-        capabilities: PROVIDER_CAPABILITIES,
-      });
+      sendJson(response, 200, workSpec(context, job));
       return;
     }
     if (request.method === 'POST' && action === 'heartbeat') {
@@ -454,9 +632,23 @@ export async function handleImportRoute(
     return true;
   }
 
+  const originalMatch = path.match(/^\/api\/imports\/([^/]+)\/original$/);
+  if (request.method === 'PUT' && originalMatch) {
+    await handleOriginal(context, request, response, decodeURIComponent(originalMatch[1]));
+    return true;
+  }
+
   const actionMatch = path.match(/^\/api\/imports\/([^/]+)\/(cancel|retry)$/);
   if (request.method === 'POST' && actionMatch) {
     await handleJobAction(context, request, response, decodeURIComponent(actionMatch[1]), actionMatch[2]);
+    return true;
+  }
+
+  const finalizeMatch = path.match(/^\/api\/imports\/([^/]+)\/finalize$/);
+  if (request.method === 'POST' && finalizeMatch) {
+    if (!requireEnabled(context, response)) return true;
+    if (!requireCurator(context, request, response)) return true;
+    await handleFinalize(context, request, response, decodeURIComponent(finalizeMatch[1]));
     return true;
   }
 

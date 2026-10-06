@@ -11,6 +11,8 @@ export interface ResolvedSource {
   providerId?: string;
   /** Direct, downloadable media URL — only when permitted for the provider. */
   audioUrl?: string;
+  /** Private object key for a user-upload original. Never a filesystem path or fetch URL. */
+  objectKey?: string;
 }
 
 export class NonRetryableError extends Error {
@@ -20,7 +22,31 @@ export class NonRetryableError extends Error {
   }
 }
 
-export async function resolveSource(job: { provider: string; sourceUrl: string; mode: string }): Promise<ResolvedSource> {
+export function isUploadUrn(sourceUrl: string): boolean {
+  return /^urn:syco23:upload:.+$/.test(sourceUrl);
+}
+
+export async function resolveSource(job: {
+  provider: string;
+  sourceUrl: string;
+  mode: string;
+  originalObjectKey?: string;
+}): Promise<ResolvedSource> {
+  if (job.provider === 'user_upload') {
+    if (job.mode !== 'audio') {
+      throw new NonRetryableError('User uploads are audio-only');
+    }
+    if (!job.originalObjectKey) {
+      throw new NonRetryableError('User upload has no original object');
+    }
+    if (job.sourceUrl.startsWith('/') || job.sourceUrl.startsWith('file:') || job.sourceUrl.includes('://')) {
+      throw new NonRetryableError('User upload source must be a private URN');
+    }
+    if (!isUploadUrn(job.sourceUrl)) {
+      throw new NonRetryableError('User upload source must be a private URN');
+    }
+    return { objectKey: job.originalObjectKey };
+  }
   if (job.provider === 'soundcloud') {
     if (job.mode === 'audio') {
       throw new NonRetryableError('Server-side SoundCloud audio acquisition is blocked by provider policy');
@@ -39,8 +65,10 @@ export async function resolveSource(job: { provider: string; sourceUrl: string; 
       : undefined;
     return { title: payload.title, artworkUrl: artwork };
   }
-  if (job.provider === 'user_upload' || job.provider === 'archiveorg' || job.provider === 'freeteknomusic') {
-    // Archive-style providers expose direct media URLs; the URL itself is the handle.
+  if (job.provider === 'archiveorg' || job.provider === 'freeteknomusic') {
+    if (isUploadUrn(job.sourceUrl) || job.sourceUrl.startsWith('/') || job.sourceUrl.startsWith('file:')) {
+      throw new NonRetryableError('Provider audio must be an http(s) URL');
+    }
     return job.mode === 'audio' ? { audioUrl: job.sourceUrl } : {};
   }
   throw new NonRetryableError(`No resolver registered for provider ${job.provider}`);

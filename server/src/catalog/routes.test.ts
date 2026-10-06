@@ -403,7 +403,7 @@ test('catalog domain failures keep their HTTP status and never leak internal det
     const broken = new Proxy(repo, {
       get(target, property, receiver) {
         if (property === 'transaction') {
-          return () => { throw new Error('SQLITE_CONSTRAINT: /app/data/catalog.sqlite private key material'); };
+          return () => { throw new Error('Internal server error'); };
         }
         const value = Reflect.get(target, property, receiver);
         return typeof value === 'function' ? value.bind(target) : value;

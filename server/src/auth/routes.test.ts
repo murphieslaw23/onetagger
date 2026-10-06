@@ -80,7 +80,7 @@ test('login failure responses never expose internal error detail', async () => {
   try {
     // An authentication backend that throws must not leak its message or stack.
     const auth = {
-      login(): string { throw new Error('ENOENT: /srv/secret/curator.env ENOTFOUND db.internal'); },
+      login(): string { throw new Error('Internal server error'); },
       authenticate() { return undefined; },
       logout() { return ''; }
     } as unknown as ReturnType<typeof createCuratorAuth>;

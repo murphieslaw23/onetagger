@@ -131,6 +131,9 @@
               <button v-if="job.job.state === 'failed' || job.job.state === 'cancelled'" class="icon-btn" title="Retry" aria-label="Retry" @click="retryImport(job)">
                 <q-icon name="mdi-refresh" />
               </button>
+              <button v-if="job.job.state === 'completed' || job.job.state === 'review'" class="icon-btn" title="Finalize as catalog record" aria-label="Finalize as catalog record" @click="finalizeImport(job)">
+                <q-icon name="mdi-check-circle" />
+              </button>
             </article>
           </div>
         </div>
@@ -234,6 +237,9 @@ import {
   ApiRequestError,
   type ApiDiscoveryJob,
   type ApiMixCandidate,
+  finalizeImportJob,
+  type FinalizeImportJobInput,
+  type FinalizeImportJobResult,
 } from '../services/api';
 
 const {
@@ -498,6 +504,39 @@ async function runJobAction(job: ImportJob) {
     $q.notify({ type: 'negative', message: error instanceof Error ? error.message : 'Could not rerun job.' });
   } finally {
     submitting.value = false;
+  }
+}
+
+async function finalizeImport(job: ImportJobDetail) {
+  const curatorPassword = prompt('Enter curator password to finalize this import job as a catalog record:');
+  if (!curatorPassword) return;
+  const alreadyFinalized = importJobs.value.find((entry) => entry.job.id === job.job.id && (entry as any).mixId);
+  if (alreadyFinalized) {
+    $q.notify({ type: 'positive', message: 'This import is already linked to a catalog record.' });
+    return;
+  }
+  try {
+    const result = await finalizeImportJob(job.job.id, { curatorPassword }) as FinalizeImportJobResult;
+    const index = importJobs.value.findIndex((entry) => entry.job.id === job.job.id);
+    if (index >= 0) {
+      const updated = { ...importJobs.value[index], ...result };
+      updated.job.mixId = result.mixId;
+      importJobs.value[index] = updated;
+    }
+    const storeJob = state.jobs.find((entry) => entry.id === job.job.id);
+    if (storeJob) {
+      (storeJob as any).mixId = result.mixId;
+      (storeJob as any).state = 'finalized';
+    }
+    const message = (result.claimsApplied > 0 ? `Finalized: ${(result.record as any).title} → ` : '') + `Finalized: ${shortId(result.mixId)} (${result.claimsApplied} claim(s) applied)`;
+    $q.notify({ type: 'positive', message, timeout: 7000 });
+    await catalog.loadReview();
+  } catch (error) {
+    if (error instanceof CatalogApiError && error.status === 401) {
+      await router.push('/login?redirect=/import');
+      return;
+    }
+    $q.notify({ type: 'negative', message: error instanceof Error ? error.message : 'Finalize failed.' });
   }
 }
 

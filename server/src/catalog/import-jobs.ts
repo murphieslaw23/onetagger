@@ -217,9 +217,9 @@ export function listEvidenceScoresV2(database: DatabaseSync, jobId: RecordId) {
     id: row.id, jobId: row.job_id, claimId: row.claim_id, field: row.field,
     score: row.score, algorithmVersion: row.algorithm_version,
     components: JSON.parse(row.components_json) as Record<string, unknown>,
-    gates: JSON.parse(row.hard_gates_json) as Record<string, unknown>,
+    hardGates: JSON.parse(row.hard_gates_json) as Record<string, unknown>,
     decision: row.decision, evaluatedAt: row.evaluated_at,
-  }));
+  })) as ScoredEvidence[];
 }
 
 

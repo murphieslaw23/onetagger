@@ -109,7 +109,8 @@ test('user-upload audio jobs persist a private URN and never a filesystem path',
     }), response.response);
     assert.equal(response.captured.status, 202);
     const payload = JSON.parse(response.captured.body ?? '{}');
-    assert.equal(payload.job.state, 'queued');
+    // user_upload jobs start in 'created' state (awaiting original file upload via PUT /api/imports/{id}/original)
+    assert.equal(payload.job.state, 'created');
     assert.equal(payload.job.sourceUrl, 'urn:syco23:upload:upl_123');
     assert.equal(payload.policy.allowed, true);
     assert.match(payload.job.sourceUrl, /^urn:syco23:upload:/);
@@ -283,5 +284,68 @@ test('non-retryable worker failures stay failed instead of re-queueing', async (
     assert.equal(view.job.state, 'failed');
     assert.equal(view.job.errorCode, 'non_retryable');
     assert.equal(context.repository.claimDueImportJob('worker-1'), undefined);
+  } finally { cleanup(); }
+});
+
+test('/api/imports/{id}/finalize creates the catalog record and applies evidence', async () => {
+  const { context, cookie, cleanup } = setup(true);
+  try {
+    const created = mockResponse();
+    await handleImportRoute(context, mockRequest('POST', '/api/imports', metadataRequest, {
+      origin: ORIGIN, cookie, 'idempotency-key': 'idem-finalize-1'
+    }), created.response);
+    const jobId = JSON.parse(created.captured.body ?? '{}').job.id as string;
+
+    // Run through worker lifecycle: progress -> artifact -> evidence -> complete
+    const post = (path: string, body: Record<string, unknown>, method = 'POST') => {
+      const raw = JSON.stringify(body);
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const response = mockResponse();
+      return handleImportRoute(context, mockRequest(method, path, body, {
+        'x-import-worker-timestamp': timestamp,
+        'x-import-worker-signature': signWorkerRequest('test-worker-secret', timestamp, method, path, raw),
+        'x-import-worker-scope': 'import_worker',
+      }), response.response).then(() => response);
+    };
+
+    await post(`/internal/imports/${jobId}/events`, { type: 'progress', payload: { stage: 'resolving' }, state: 'resolving' });
+    await post(`/internal/imports/${jobId}/artifacts`, {
+      role: 'metadata', objectKey: `imports/${jobId}/metadata/${'b'.repeat(64)}.json`, sha256: 'b'.repeat(64),
+    });
+    await post(`/internal/imports/${jobId}/evidence`, {
+      scores: [{
+        field: 'title', score: 87, algorithmVersion: 'evidence-v1',
+        components: { I: 1, T: 1, D: 1, R: 1, P: 1, C: 0.7, X: 0 },
+        hardGates: { identity: true, rights: true, noConflict: true, policy: true },
+        decision: 'auto_apply', evaluatedAt: '2026-10-06T12:00:00.000Z',
+      }],
+    });
+    const complete = await post(`/internal/imports/${jobId}/complete`, { state: 'completed', attempt: 1 });
+    assert.equal(complete.captured.status, 200);
+
+    // Finalize without curator session -> 401
+    const noAuth = mockResponse();
+    await handleImportRoute(context, mockRequest('POST', `/api/imports/${jobId}/finalize`, JSON.stringify({ curatorPassword: 'wrong' }), {
+      origin: ORIGIN, cookie: 'syco23_curator=forged',
+    }), noAuth.response);
+    assert.equal(noAuth.captured.status, 401);
+
+    // Finalize with curator -> 200, record created
+    // Use the same context as the worker lifecycle (same repository).
+    const response = mockResponse();
+    await handleImportRoute(context, mockRequest('POST', `/api/imports/${jobId}/finalize`, JSON.stringify({ curatorPassword: 'private-local-password' }), {
+      origin: ORIGIN, cookie: cookie,
+    }), response.response);
+    assert.equal(response.captured.status, 200);
+    const payload = JSON.parse(response.captured.body ?? '{}');
+    assert.ok(payload.record);
+    assert.ok(payload.record.id);
+    assert.equal(payload.mixId, payload.record.id);
+    assert.ok(payload.claimsApplied >= 1);
+    // Evidence was converted to a claim and merged
+    const recordId = payload.record.id;
+    const evidenceScores = context.repository.listImportEvidenceScores(jobId);
+    assert.ok(evidenceScores.length >= 1);
+    assert.equal(evidenceScores[0].claimId, null);
   } finally { cleanup(); }
 });

@@ -27,6 +27,8 @@ export interface WorkSpec {
   job: ImportJobSpec;
   limits: ImportLimits;
   capabilities: Record<string, { metadata: boolean; audio: boolean }>;
+  /** Private original object key for user uploads. Never a filesystem path. */
+  originalObjectKey?: string;
 }
 
 export class ControlPlaneError extends Error {

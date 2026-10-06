@@ -43,14 +43,30 @@ export async function processAudioJob(client: ControlClient, config: WorkerConfi
   const workdir = await mkdtemp(join(tmpdir(), `syco23-import-${job.id.slice(0, 12)}-`));
   try {
     await client.event(job.id, 'resolving', { state: 'resolving' });
-    const source = await resolveSource({ provider: job.provider, sourceUrl: job.sourceUrl, mode: 'audio' });
-    if (!source.audioUrl) throw new RetryableError('No downloadable audio URL was resolved');
+    const source = await resolveSource({
+      provider: job.provider,
+      sourceUrl: job.sourceUrl,
+      mode: 'audio',
+      originalObjectKey: spec.originalObjectKey,
+    });
 
     await client.event(job.id, 'acquiring', { state: 'acquiring' });
-    const { bytes: raw, finalUrl } = await boundedFetch(source.audioUrl, {
-      maxBytes: limits.maxInputBytes,
-      timeoutMs: 5 * 60_000,
-    });
+    let raw: Buffer;
+    let finalUrl: string;
+    if (source.objectKey) {
+      raw = await store.get(source.objectKey);
+      if (raw.length > limits.maxInputBytes) throw new NonRetryableError('Original object exceeds the input quota');
+      finalUrl = job.sourceUrl;
+    } else if (source.audioUrl) {
+      const fetched = await boundedFetch(source.audioUrl, {
+        maxBytes: limits.maxInputBytes,
+        timeoutMs: 5 * 60_000,
+      });
+      raw = fetched.bytes;
+      finalUrl = fetched.finalUrl;
+    } else {
+      throw new RetryableError('No downloadable audio URL was resolved');
+    }
     const rawSha = sha256(raw);
     const rawPath = join(workdir, 'input.raw');
     await writeFile(rawPath, raw, { mode: 0o600 });
