@@ -8,6 +8,11 @@
       </div>
     </header>
 
+    <div v-if="versionChecked && !versionOk" class="panel import-warning">
+      <div class="panel-head"><span>DURABLE IMPORTS UNAVAILABLE</span><b>CAPABILITY CHECK</b></div>
+      <p>{{ versionMessage }}</p>
+    </div>
+
     <div class="import-layout">
       <section class="panel import-console">
         <div class="panel-head"><span>NEW JOB</span><b>DISCOVERY TARGET</b></div>
@@ -74,6 +79,61 @@
           {{ submitting ? 'Contacting worker…' : 'Queue discovery job' }}
         </button>
         <p class="legal-note">Public metadata only. No protected-content bypass, no full-audio download during discovery.</p>
+
+        <div v-if="versionOk" class="import-jobs">
+          <div class="panel-head"><span>DURABLE IMPORT</span><b>METADATA / AUDIO JOB</b></div>
+
+          <label class="field-label" for="import-url">SOURCE URL</label>
+          <input
+            id="import-url"
+            v-model="importUrl"
+            type="url"
+            placeholder="https://soundcloud.com/example/example"
+          />
+          <div class="split-fields">
+            <label>
+              <span>MODE</span>
+              <select v-model="importMode">
+                <option value="metadata">metadata</option>
+                <option value="audio">audio</option>
+              </select>
+            </label>
+            <label>
+              <span>RIGHTS BASIS</span>
+              <select v-model="importRights">
+                <option value="provider_metadata_only">provider metadata only</option>
+                <option value="user_authorized_copy">user authorized copy</option>
+                <option value="licensed_archive">licensed archive</option>
+                <option value="rights_holder">rights holder</option>
+                <option value="separate_agreement">separate agreement</option>
+              </select>
+            </label>
+          </div>
+          <p v-if="audioBlockedHint" class="legal-note">{{ audioBlockedHint }}</p>
+          <button class="btn btn--primary btn--wide" :disabled="importSubmitting || !importUrl.trim()" @click="queueImport">
+            <q-icon :name="importSubmitting ? 'mdi-loading mdi-spin' : 'mdi-tray-arrow-down'" />
+            {{ importSubmitting ? 'Creating import…' : 'Create import job' }}
+          </button>
+
+          <div v-if="importJobs.length" class="job-list">
+            <article v-for="job in importJobs" :key="job.job.id" class="job-row">
+              <div class="job-row__body">
+                <div><strong>{{ shortId(job.job.id) }}</strong><span>{{ job.job.state.toUpperCase() }}</span></div>
+                <small>{{ job.job.provider }} · {{ job.job.mode }} · attempt {{ job.job.attempt }}</small>
+                <small v-if="job.job.state === 'blocked_policy'" class="job-error">Blocked by provider policy — metadata import remains available.</small>
+                <small v-if="job.job.error" class="job-error">{{ job.job.error }}</small>
+                <div v-if="job.evidence.length" class="job-evidence">
+                  <span v-for="score in job.evidence" :key="score.id">
+                    {{ score.field }}: {{ score.score }} ({{ score.decision }})
+                  </span>
+                </div>
+              </div>
+              <button v-if="job.job.state === 'failed' || job.job.state === 'cancelled'" class="icon-btn" title="Retry" aria-label="Retry" @click="retryImport(job)">
+                <q-icon name="mdi-refresh" />
+              </button>
+            </article>
+          </div>
+        </div>
       </section>
 
       <section class="panel">
@@ -162,7 +222,7 @@ import { useQuasar } from 'quasar';
 import { useRouter } from 'vue-router';
 import SourceBadge from '../components/SourceBadge.vue';
 import { useMixStore } from '../composables/useMixStore';
-import { CatalogApiError } from '../catalog/api';
+import { CatalogApiError, importJobsApi, type ApiVersion, type ImportJobDetail } from '../catalog/api';
 import { useCatalogStore } from '../catalog/store';
 import type { ImportJob, ProviderId } from '../domain/types';
 import {
@@ -198,6 +258,101 @@ const discovered = ref<ApiMixCandidate[]>([]);
 const busySources = ref(new Set<string>());
 const autoEnrich = ref(typeof window === 'undefined' ? true : window.localStorage.getItem('syco23.mixsets.autoEnrich') !== 'false');
 let alive = true;
+
+// Capability handshake: the client gates the whole import surface on the
+// server's version/capability payload so an old UI never posts to a disabled
+// or newer control plane.
+const apiVersion = ref<ApiVersion | null>(null);
+const versionChecked = ref(false);
+const versionOk = computed(() => apiVersion.value?.importsEnabled === true && (apiVersion.value?.apiVersion ?? 0) >= 1);
+const versionMessage = ref('');
+
+async function checkVersion() {
+  try {
+    apiVersion.value = await importJobsApi.version();
+    if (!apiVersion.value.importsEnabled) {
+      versionMessage.value = 'Import jobs are disabled on this API (IMPORTS_ENABLED). Provider discovery remains available.';
+    }
+  } catch {
+    versionMessage.value = 'The API version check failed; imports are unavailable.';
+  } finally {
+    versionChecked.value = true;
+  }
+}
+
+// Durable import jobs (control plane): mode + rights are explicit, the server
+// policy gate is authoritative and SoundCloud audio stays blocked there.
+const importUrl = ref('');
+const importMode = ref<'metadata' | 'audio'>('metadata');
+const importRights = ref('provider_metadata_only');
+const importSubmitting = ref(false);
+const importJobs = ref<ImportJobDetail[]>([]);
+
+const audioBlockedHint = computed(() => {
+  if (importMode.value !== 'audio') return '';
+  return `Server-side audio depends on provider capabilities and rights: SoundCloud audio stays blocked by policy, metadata imports remain available.`;
+});
+
+function shortId(id: string) {
+  return id.length > 18 ? `${id.slice(0, 12)}…` : id;
+}
+
+async function queueImport() {
+  if (!importUrl.value.trim() || !versionOk.value) return;
+  importSubmitting.value = true;
+  try {
+    const detail = await importJobsApi.create({
+      provider: selectedProvider.value,
+      url: importUrl.value.trim(),
+      mode: importMode.value,
+      rightsBasis: importRights.value,
+    });
+    const existing = importJobs.value.findIndex((entry) => entry.job.id === detail.job.id);
+    if (existing >= 0) importJobs.value[existing] = detail;
+    else importJobs.value.unshift(detail);
+    if (detail.job.state === 'blocked_policy') {
+      $q.notify({ type: 'warning', message: detail.policy?.reason ?? 'Blocked by provider policy', timeout: 7000 });
+    } else {
+      $q.notify({ message: `Import ${detail.job.state}: ${shortId(detail.job.id)}`, position: 'top-right' });
+      void pollImport(detail.job.id);
+    }
+  } catch (error) {
+    if (error instanceof CatalogApiError && error.status === 401) {
+      await router.push('/login?redirect=/import');
+      return;
+    }
+    $q.notify({ type: 'negative', message: error instanceof Error ? error.message : 'Import could not be created.' });
+  } finally {
+    importSubmitting.value = false;
+  }
+}
+
+async function pollImport(id: string) {
+  for (let attempt = 0; attempt < 120 && alive; attempt += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, 2000));
+    try {
+      const detail = await importJobsApi.get(id);
+      const index = importJobs.value.findIndex((entry) => entry.job.id === id);
+      if (index >= 0) importJobs.value[index] = detail;
+      if (['completed', 'blocked_policy', 'failed', 'cancelled', 'review'].includes(detail.job.state)) {
+        return;
+      }
+    } catch {
+      return;
+    }
+  }
+}
+
+async function retryImport(job: ImportJobDetail) {
+  try {
+    const detail = await importJobsApi.retry(job.job.id);
+    const index = importJobs.value.findIndex((entry) => entry.job.id === job.job.id);
+    if (index >= 0) importJobs.value[index] = detail;
+    void pollImport(detail.job.id);
+  } catch (error) {
+    $q.notify({ type: 'negative', message: error instanceof Error ? error.message : 'Retry failed.' });
+  }
+}
 
 watch(autoEnrich, (value) => {
   window.localStorage.setItem('syco23.mixsets.autoEnrich', String(value));
@@ -403,7 +558,11 @@ async function importCandidate(candidate: ApiMixCandidate) {
 
 onMounted(async () => {
   try {
-    const [health, authenticated] = await Promise.all([getProviderHealth(), catalog.checkSession()]);
+    const [health, authenticated, version] = await Promise.all([
+      getProviderHealth(),
+      catalog.checkSession(),
+      checkVersion().then(() => apiVersion.value).catch(() => null),
+    ]);
     updateProviderHealth(health);
     if (authenticated) {
       const jobs = await getDiscoveryJobs();
@@ -413,6 +572,7 @@ onMounted(async () => {
       syncApiJobs([]);
     }
     setApiState('online');
+    void version;
   } catch {
     setApiState('offline');
   }

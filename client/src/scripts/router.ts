@@ -1,12 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router';
 
-import ImportView from '../views/ImportView.vue';
-import LocalTaggerView from '../views/LocalTaggerView.vue';
-import CatalogIndexView from '../views/CatalogIndexView.vue';
-import CatalogDetailView from '../views/CatalogDetailView.vue';
-import CuratorLoginView from '../views/CuratorLoginView.vue';
-import ReviewView from '../views/ReviewView.vue';
-import ProvidersView from '../views/ProvidersView.vue';
+const CatalogIndexView = () => import(/* webpackChunkName: "catalog-index" */ '../views/CatalogIndexView.vue');
+const CatalogDetailView = () => import(/* webpackChunkName: "catalog-detail" */ '../views/CatalogDetailView.vue');
+const CuratorLoginView = () => import(/* webpackChunkName: "login" */ '../views/CuratorLoginView.vue');
+const ImportView = () => import(/* webpackChunkName: "import" */ '../views/ImportView.vue');
+const LocalTaggerView = () => import(/* webpackChunkName: "local-tags" */ '../views/LocalTaggerView.vue');
+const ProvidersView = () => import(/* webpackChunkName: "providers" */ '../views/ProvidersView.vue');
+const ReviewView = () => import(/* webpackChunkName: "review" */ '../views/ReviewView.vue');
 
 const router = createRouter({
   history: createWebHistory(),

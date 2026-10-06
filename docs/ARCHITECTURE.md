@@ -17,6 +17,7 @@ Node 22.23.3 worker
   -> durable enrichment-run log (migration 006)
   -> persistent media directory (validated waveform PNGs)
   -> in-memory discovery and waveform job queues (bounded concurrency)
+  -> optional import control plane (migration 007, HMAC worker, private artifacts)
 ```
 
 ## Persistence boundaries
@@ -53,4 +54,10 @@ Public readers can list and open confirmed records, read field evidence and foll
 
 Domain errors are mapped to HTTP status by an explicit allow-list of message prefixes rather than a broad pattern, so an unrecognized internal fault becomes a generic 500 instead of leaking a path or SQL fragment in a 400 body.
 
-Discovery jobs and waveform jobs remain in memory and are scoped to the single running worker. Restarting the worker preserves catalog data, claims, decisions, media and enrichment history, but active jobs are not durable. Multi-worker deployment is not supported until those queues are persisted.
+Discovery jobs and waveform jobs remain in memory and are scoped to the single running worker. Restarting the worker preserves catalog data, claims, decisions, media and enrichment history, but active discovery/waveform jobs are not durable. Multi-worker catalog deployment is not supported until those queues are persisted.
+
+## Import control plane
+
+Durable metadata/audio imports are a separate, opt-in plane. They stay dark (`503`) unless `IMPORTS_ENABLED` is set **and** a real curator password hash is configured, so `AUTH_MODE=off` deployments cannot expose acquisition anonymously. Curator sessions own `/api/imports`; the import worker authenticates to `/internal/imports` with HMAC-SHA256 over timestamp, method, path and body.
+
+Provider policy is shared domain code: SoundCloud/YouTube/hearthis expose metadata only; Freeteknomusic and Archive.org may acquire audio when an explicit non-metadata rights basis is attested. User uploads store a private `urn:syco23:upload:…` handle, never a filesystem path. The worker never opens SQLite: it leases jobs, writes private artifacts, scores evidence and reports completion. Non-retryable failures (blocked URLs, rejected media, policy) stay `failed`; retryable failures re-queue with backoff.

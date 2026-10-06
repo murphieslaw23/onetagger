@@ -12,6 +12,9 @@ import {
   type EntityRecord,
   type EntityRole,
   type FieldClaim,
+  type ImportJob,
+  type ImportJobState,
+  type ScoredEvidence,
   type IndexKind,
   type MigrationResult,
   type PageQuery,
@@ -21,6 +24,25 @@ import {
 } from '@syco23/catalog-domain';
 import { normalizeName, normalizeProviderRef } from '@syco23/catalog-domain';
 import { openDatabase } from './database.js';
+import {
+  appendImportEventV2,
+  claimDueImportJobV2,
+  completeImportOutboxV2,
+  enqueueImportJobV2,
+  insertImportJobV2,
+  listEvidenceScoresV2,
+  listImportArtifactsV2,
+  listImportEventsV2,
+  listImportJobsV2,
+  readImportJobV2,
+  readImportJobV2ByKey,
+  registerImportArtifactV2,
+  renewImportLeaseV2,
+  saveEvidenceScoreV2,
+  saveProvenanceV2,
+  saveRightsConsentV2,
+  updateImportJobV2State,
+} from './import-jobs.js';
 
 export interface CatalogTransaction {
   getRecord(id: RecordId): CatalogRecord | undefined;
@@ -38,6 +60,22 @@ export interface CatalogTransaction {
   repointAlias(legacyId: string, recordId: RecordId): void;
   retireRecord(duplicateId: RecordId, survivorId: RecordId): void;
   addMediaAsset(asset: StoredMediaAsset): void;
+  getImportJob(id: RecordId): ImportJob | undefined;
+  getImportJobByIdempotency(key: string): ImportJob | undefined;
+  createImportJob(job: ImportJob): ImportJob;
+  updateImportJobState(id: RecordId, state: ImportJobState, extra?: { errorCode?: string | null; error?: string | null; mixId?: RecordId | null; attempt?: number }): ImportJob;
+  appendImportEvent(jobId: RecordId, type: string, payload?: Record<string, unknown>): void;
+  enqueueImportJob(jobId: RecordId, delayMs?: number): void;
+  claimDueImportJob(owner: string, leaseMs?: number): ImportJob | undefined;
+  completeImportOutbox(jobId: RecordId): void;
+  renewImportLease(jobId: RecordId, owner: string, leaseMs?: number): boolean;
+  listImportEvents(jobId: RecordId): Array<{ id: string; jobId: string; sequence: number; type: string; payload: Record<string, unknown>; createdAt: string }>;
+  registerImportArtifact(input: { id: RecordId; jobId: RecordId; role: string; objectKey: string; sha256: string; mimeType?: string | null; sizeBytes?: number | null; codec?: string | null; durationMs?: number | null; retentionUntil?: string | null }): void;
+  listImportArtifacts(jobId: RecordId): Array<{ id: string; jobId: string; role: string; objectKey: string; sha256: string; mimeType: string | null; sizeBytes: number | null; codec: string | null; durationMs: number | null; state: string; createdAt: string }>;
+  saveImportProvenance(jobId: RecordId, row: { provider: string; sourceUrl: string; externalId?: string | null; retrievalMethod: string; observedAt: string; termsVersion?: string | null; snapshot: Record<string, unknown> }): void;
+  saveImportRightsConsent(input: { id: RecordId; jobId: RecordId; requestedBy: string; basis: string; provider: string; sourceUrl?: string | null; attestationVersion: string; proofObjectKey?: string | null }): void;
+  saveImportEvidenceScore(input: { id: RecordId; jobId: RecordId; claimId?: string | null; field: string; scored: ScoredEvidence }): ScoredEvidence & { id: RecordId; jobId: RecordId };
+  listImportEvidenceScores(jobId: RecordId): Array<{ id: string; jobId: string; claimId: string | null; field: string; score: number; algorithmVersion: string; components: Record<string, unknown>; gates: Record<string, unknown>; decision: string; evaluatedAt: string }>;
 }
 
 export type ClaimDisposition = 'selected' | 'corroborated' | 'pending' | 'rejected';
@@ -117,6 +155,23 @@ export interface CatalogRepository {
   finishEnrichmentRun(runId: string, state: 'completed' | 'interrupted' | 'failed', report?: EnrichmentReport): void;
   interruptStaleEnrichmentRuns(): number;
   listEnrichmentRuns(recordId: RecordId): EnrichmentRun[];
+  getImportJob(id: RecordId): ImportJob | undefined;
+  getImportJobByIdempotency(key: string): ImportJob | undefined;
+  createImportJob(job: ImportJob): ImportJob;
+  updateImportJobState(id: RecordId, state: ImportJobState, extra?: { errorCode?: string | null; error?: string | null; mixId?: RecordId | null; attempt?: number }): ImportJob;
+  appendImportEvent(jobId: RecordId, type: string, payload?: Record<string, unknown>): void;
+  enqueueImportJob(jobId: RecordId, delayMs?: number): void;
+  claimDueImportJob(owner: string, leaseMs?: number): ImportJob | undefined;
+  completeImportOutbox(jobId: RecordId): void;
+  renewImportLease(jobId: RecordId, owner: string, leaseMs?: number): boolean;
+  listImportEvents(jobId: RecordId): Array<{ id: string; jobId: string; sequence: number; type: string; payload: Record<string, unknown>; createdAt: string }>;
+  registerImportArtifact(input: { id: RecordId; jobId: RecordId; role: string; objectKey: string; sha256: string; mimeType?: string | null; sizeBytes?: number | null; codec?: string | null; durationMs?: number | null; retentionUntil?: string | null }): void;
+  listImportArtifacts(jobId: RecordId): Array<{ id: string; jobId: string; role: string; objectKey: string; sha256: string; mimeType: string | null; sizeBytes: number | null; codec: string | null; durationMs: number | null; state: string; createdAt: string }>;
+  saveImportProvenance(jobId: RecordId, row: { provider: string; sourceUrl: string; externalId?: string | null; retrievalMethod: string; observedAt: string; termsVersion?: string | null; snapshot: Record<string, unknown> }): void;
+  saveImportRightsConsent(input: { id: RecordId; jobId: RecordId; requestedBy: string; basis: string; provider: string; sourceUrl?: string | null; attestationVersion: string; proofObjectKey?: string | null }): void;
+  saveImportEvidenceScore(input: { id: RecordId; jobId: RecordId; claimId?: string | null; field: string; scored: ScoredEvidence }): ScoredEvidence & { id: RecordId; jobId: RecordId };
+  listImportEvidenceScores(jobId: RecordId): Array<{ id: string; jobId: string; claimId: string | null; field: string; score: number; algorithmVersion: string; components: Record<string, unknown>; gates: Record<string, unknown>; decision: string; evaluatedAt: string }>;
+  listImportJobs(options?: { state?: ImportJobState; limit?: number }): ImportJob[];
   transaction<T>(operation: (tx: CatalogTransaction) => T): T;
   close(): void;
 }
@@ -323,6 +378,77 @@ function createTransaction(database: DatabaseSync): CatalogTransaction {
       if (asset.relativePath !== `${asset.mediaId}.png`) throw new Error('Media path is invalid');
       database.prepare(`INSERT INTO media_assets(media_id, record_id, role, relative_path, mime_type, byte_size, source_url, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(asset.mediaId, asset.recordId, asset.role, asset.relativePath, asset.mimeType, asset.byteSize, asset.sourceUrl, new Date().toISOString());
+    },
+
+    getImportJob(id) {
+      return readImportJobV2(database, id);
+    },
+
+    getImportJobByIdempotency(key) {
+      return readImportJobV2ByKey(database, key);
+    },
+
+    createImportJob(job) {
+      const created = insertImportJobV2(database, job);
+      appendImportEventV2(database, created.id, 'created', { state: created.state });
+      return created;
+    },
+
+    updateImportJobState(id, state, extra) {
+      const next = updateImportJobV2State(database, id, state, extra);
+      appendImportEventV2(database, id, 'state', { state });
+      if (state === 'completed' || state === 'blocked_policy' || state === 'failed' || state === 'cancelled') {
+        completeImportOutboxV2(database, id);
+      }
+      return next;
+    },
+
+    appendImportEvent(jobId, type, payload) {
+      appendImportEventV2(database, jobId, type, payload);
+    },
+
+    enqueueImportJob(jobId, delayMs) {
+      enqueueImportJobV2(database, jobId, delayMs);
+    },
+
+    claimDueImportJob(owner, leaseMs) {
+      return claimDueImportJobV2(database, owner, leaseMs);
+    },
+
+    completeImportOutbox(jobId) {
+      completeImportOutboxV2(database, jobId);
+    },
+
+    renewImportLease(jobId, owner, leaseMs) {
+      return renewImportLeaseV2(database, jobId, owner, leaseMs);
+    },
+
+    listImportEvents(jobId) {
+      return listImportEventsV2(database, jobId);
+    },
+
+    registerImportArtifact(input) {
+      registerImportArtifactV2(database, input);
+    },
+
+    listImportArtifacts(jobId) {
+      return listImportArtifactsV2(database, jobId);
+    },
+
+    saveImportProvenance(jobId, row) {
+      saveProvenanceV2(database, jobId, row);
+    },
+
+    saveImportRightsConsent(input) {
+      saveRightsConsentV2(database, input);
+    },
+
+    saveImportEvidenceScore(input) {
+      return saveEvidenceScoreV2(database, input);
+    },
+
+    listImportEvidenceScores(jobId) {
+      return listEvidenceScoresV2(database, jobId);
     }
   };
 }
@@ -456,6 +582,74 @@ export function openCatalog(path: string): CatalogRepository {
         startedAt: row.started_at,
         ...(row.finished_at ? { finishedAt: row.finished_at } : {})
       }));
+    },
+
+    getImportJob(id) {
+      return createTransaction(database).getImportJob(id);
+    },
+
+    getImportJobByIdempotency(key) {
+      return createTransaction(database).getImportJobByIdempotency(key);
+    },
+
+    createImportJob(job) {
+      return createTransaction(database).createImportJob(job);
+    },
+
+    updateImportJobState(id, state, extra) {
+      return createTransaction(database).updateImportJobState(id, state, extra);
+    },
+
+    appendImportEvent(jobId, type, payload) {
+      return createTransaction(database).appendImportEvent(jobId, type, payload);
+    },
+
+    enqueueImportJob(jobId, delayMs) {
+      return createTransaction(database).enqueueImportJob(jobId, delayMs);
+    },
+
+    claimDueImportJob(owner, leaseMs) {
+      return createTransaction(database).claimDueImportJob(owner, leaseMs);
+    },
+
+    completeImportOutbox(jobId) {
+      return createTransaction(database).completeImportOutbox(jobId);
+    },
+
+    renewImportLease(jobId, owner, leaseMs) {
+      return createTransaction(database).renewImportLease(jobId, owner, leaseMs);
+    },
+
+    listImportEvents(jobId) {
+      return createTransaction(database).listImportEvents(jobId);
+    },
+
+    registerImportArtifact(input) {
+      return createTransaction(database).registerImportArtifact(input);
+    },
+
+    listImportArtifacts(jobId) {
+      return createTransaction(database).listImportArtifacts(jobId);
+    },
+
+    saveImportProvenance(jobId, row) {
+      return createTransaction(database).saveImportProvenance(jobId, row);
+    },
+
+    saveImportRightsConsent(input) {
+      return createTransaction(database).saveImportRightsConsent(input);
+    },
+
+    saveImportEvidenceScore(input) {
+      return createTransaction(database).saveImportEvidenceScore(input);
+    },
+
+    listImportEvidenceScores(jobId) {
+      return createTransaction(database).listImportEvidenceScores(jobId);
+    },
+
+    listImportJobs(options) {
+      return listImportJobsV2(database, options ?? {});
     },
 
     listIndex(kind, input) {

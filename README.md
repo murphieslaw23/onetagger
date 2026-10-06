@@ -60,7 +60,7 @@ pnpm test
 pnpm build
 ```
 
-`pnpm test` runs the shared-domain, client API/store, server and deployment suites (108 tests: 5 domain, 24 client, 75 server, 4 deployment). The SQLite Node API emits Node's experimental SQLite warning on Node 22; production is pinned to Node 22.23.3.
+`pnpm test` runs the shared-domain, client API/store, server, import-worker and deployment suites. The SQLite Node API emits Node's experimental SQLite warning on Node 22; production is pinned to Node 22.23.3. Durable import jobs stay disabled unless `IMPORTS_ENABLED` is set and curator authentication is configured.
 
 ## Verification status
 

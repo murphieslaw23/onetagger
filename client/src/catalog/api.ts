@@ -4,8 +4,10 @@ import {
   EnrichmentReportSchema,
   FieldEvidenceListSchema,
   ImportCandidateSchema,
+  ImportJobSchema,
   ImportResultSchema,
   MigrationResultSchema,
+  PROVIDER_CAPABILITIES,
   RelatedMixesSchema,
   ReviewItemSchema,
   type CatalogPage,
@@ -13,6 +15,7 @@ import {
   type EnrichmentReport,
   type FieldEvidenceList,
   type ImportCandidate,
+  type ImportJob,
   type ImportResult,
   type IndexKind,
   type MigrationResult,
@@ -21,6 +24,7 @@ import {
   type RelatedMixes,
   type ReviewItem
 } from '@syco23/catalog-domain';
+import { z } from 'zod';
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '');
 
@@ -153,4 +157,92 @@ export const catalogApi = {
       body: JSON.stringify({ survivor, duplicate, expectedRevisions })
     }));
   }
+};
+
+export const ApiVersionSchema = z.object({
+  apiVersion: z.number().int(),
+  importsEnabled: z.boolean(),
+  providers: z.record(z.string(), z.object({ metadata: z.boolean(), audio: z.boolean() })),
+  limits: z.object({
+    maxInputBytes: z.number(),
+    maxOutputBytes: z.number(),
+    maxDurationMs: z.number(),
+    maxAttempts: z.number(),
+    autoApplyThreshold: z.number(),
+  }),
+});
+
+export type ApiVersion = z.infer<typeof ApiVersionSchema>;
+
+export const ImportJobDetailSchema = z.object({
+  job: ImportJobSchema,
+  events: z.array(z.object({
+    id: z.string(), jobId: z.string(), sequence: z.number(),
+    type: z.string(), payload: z.record(z.string(), z.unknown()), createdAt: z.string(),
+  })),
+  artifacts: z.array(z.object({
+    id: z.string(), jobId: z.string(), role: z.string(), objectKey: z.string(),
+    sha256: z.string(), mimeType: z.string().nullable(), sizeBytes: z.number().nullable(),
+    codec: z.string().nullable(), durationMs: z.number().nullable(), state: z.string(), createdAt: z.string(),
+  })),
+  evidence: z.array(z.object({
+    id: z.string(), jobId: z.string(), claimId: z.string().nullable(), field: z.string(),
+    score: z.number(), algorithmVersion: z.string(),
+    components: z.record(z.string(), z.unknown()), gates: z.record(z.string(), z.unknown()),
+    decision: z.string(), evaluatedAt: z.string(),
+  })),
+});
+
+export type ImportJobDetail = z.infer<typeof ImportJobDetailSchema>;
+
+function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `idem_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export const importJobsApi = {
+  async version(): Promise<ApiVersion> {
+    return ApiVersionSchema.parse(await request('/version'));
+  },
+
+  /** Create a metadata or audio import job. The server policy gate is authoritative. */
+  async create(input: {
+    provider: string; url?: string; uploadId?: string; externalId?: string;
+    mode: 'metadata' | 'audio'; rightsBasis: string; attestationVersion?: string;
+  }): Promise<ImportJobDetail & { policy?: { allowed: boolean; reason?: string } }> {
+    const body = {
+      source: {
+        provider: input.provider,
+        ...(input.url ? { url: input.url } : {}),
+        ...(input.uploadId ? { uploadId: input.uploadId } : {}),
+        ...(input.externalId ? { externalId: input.externalId } : {}),
+      },
+      mode: input.mode,
+      ...(input.mode === 'audio' ? { conversion: { format: 'mp3', bitrateKbps: 320, id3Version: '2.3' } } : {}),
+      rights: { basis: input.rightsBasis, attestationVersion: input.attestationVersion ?? '2026-10' },
+    };
+    const raw = await request('/imports', {
+      method: 'POST',
+      headers: { 'idempotency-key': newIdempotencyKey() },
+      body: JSON.stringify(body),
+    }) as ImportJobDetail & { policy?: { allowed: boolean; reason?: string } };
+    return { ...ImportJobDetailSchema.parse(raw), policy: raw.policy };
+  },
+
+  async get(id: RecordId): Promise<ImportJobDetail> {
+    return ImportJobDetailSchema.parse(await request(`/imports/${encodeURIComponent(id)}`));
+  },
+
+  async cancel(id: RecordId): Promise<ImportJobDetail> {
+    return ImportJobDetailSchema.parse(await request(`/imports/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' }));
+  },
+
+  async retry(id: RecordId): Promise<ImportJobDetail> {
+    return ImportJobDetailSchema.parse(await request(`/imports/${encodeURIComponent(id)}/retry`, { method: 'POST', body: '{}' }));
+  },
+
+  /** Client-side preview of the provider capability matrix (server enforces). */
+  providerAudioAllowed(provider: string): boolean {
+    return (PROVIDER_CAPABILITIES as Record<string, { metadata: boolean; audio: boolean }>)[provider]?.audio === true;
+  },
 };

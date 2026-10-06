@@ -11,6 +11,7 @@ import { createCuratorAuth } from './auth/curator.js';
 import { handleAuthRoute } from './auth/routes.js';
 import { handleCatalogRoute } from './catalog/routes.js';
 import { HttpInputError, isAllowedOrigin, publicErrorMessage, readJsonBody } from './http.js';
+import { handleImportRoute } from './imports/routes.js';
 
 const port = Number(process.env.PORT || 8787);
 const catalog = openCatalog(process.env.CATALOG_DB_PATH || './data/catalog.sqlite');
@@ -19,6 +20,14 @@ const catalog = openCatalog(process.env.CATALOG_DB_PATH || './data/catalog.sqlit
 const interruptedRuns = catalog.interruptStaleEnrichmentRuns();
 if (interruptedRuns > 0) console.log(`Closed ${interruptedRuns} interrupted enrichment run(s) from a previous process`);
 const curatorAuth = createCuratorAuth(catalog, process.env.CURATOR_PASSWORD_HASH || '');
+// Audit gate: import jobs create network/CPU/storage work. They stay dark until
+// explicitly enabled AND real curator authentication is configured, so AUTH_MODE
+// off/high-trust deployments can never expose the import control plane anonymously.
+const curatorAuthConfigured = (process.env.CURATOR_PASSWORD_HASH || '').startsWith('scrypt$');
+const importsEnabled = /^(1|true|yes|on)$/i.test(process.env.IMPORTS_ENABLED ?? '') && curatorAuthConfigured;
+if (process.env.IMPORTS_ENABLED && !importsEnabled) {
+  console.warn('IMPORTS_ENABLED was requested but curator authentication is not configured; imports stay disabled');
+}
 const registry = new ProviderRegistry();
 const queue = new InMemoryJobQueue(registry);
 const waveformQueue = new WaveformQueue();
@@ -55,6 +64,10 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     if (await handleAuthRoute({ auth: curatorAuth }, req, res)) return;
     if (await handleCatalogRoute({ repository: catalog, auth: curatorAuth, registry }, req, res)) return;
+    // Import control plane handles its own auth: curator session for /api/imports,
+    // HMAC service identity for /internal/imports. Handled before the generic
+    // curator gate so the worker's signed requests are not rejected for a cookie.
+    if (await handleImportRoute({ repository: catalog, auth: curatorAuth, importsEnabled }, req, res)) return;
 
     const curatorRead = req.method === 'GET' && (url.pathname.startsWith('/api/jobs') || url.pathname.startsWith('/api/waveforms'));
     if (req.method === 'POST' || req.method === 'PUT') {
