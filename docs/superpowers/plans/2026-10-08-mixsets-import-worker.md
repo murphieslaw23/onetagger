@@ -218,3 +218,25 @@
 ## Final definition of done
 
 Production exposes a curator-authorized import experience for user-owned/eligible recordings, with complete job/provenance/rights/claim audit, durable recovery, verified normalized private MP3, per-field >=80 evidence selection only when eligible, no unapproved SoundCloud audio acquisition, healthy deployments, versioned contracts, clear observability, and a demonstrated rollback. Existing public catalog behavior does not regress.
+
+
+## Live task synchronization (2026-10-08)
+
+The source repository currently has GitHub Issues disabled. GitHub task records therefore live in the central [SYCO23 Hub epic #58](https://github.com/murphieslaw23/syco23-hub/issues/58), with each item linked below. Engineering changes and PRs remain in `murphieslaw23/onetagger`.
+
+| Plan task | Phase | GitHub issue |
+|---|---|---|
+| 1 | P0 | [SYCO23-Hub #59](https://github.com/murphieslaw23/syco23-hub/issues/59) |
+| 2 | P0 | [SYCO23-Hub #60](https://github.com/murphieslaw23/syco23-hub/issues/60) |
+| 3 | P0 | [SYCO23-Hub #61](https://github.com/murphieslaw23/syco23-hub/issues/61) |
+| 4 | P1 | [SYCO23-Hub #62](https://github.com/murphieslaw23/syco23-hub/issues/62) |
+| 5 | P1 | [SYCO23-Hub #63](https://github.com/murphieslaw23/syco23-hub/issues/63) |
+| 6 | P1 | [SYCO23-Hub #64](https://github.com/murphieslaw23/syco23-hub/issues/64) |
+| 7 | P2 | [SYCO23-Hub #65](https://github.com/murphieslaw23/syco23-hub/issues/65) |
+| 8 | P2 | [SYCO23-Hub #66](https://github.com/murphieslaw23/syco23-hub/issues/66) |
+| 9 | P2 | [SYCO23-Hub #67](https://github.com/murphieslaw23/syco23-hub/issues/67) |
+| 10 | P3 | [SYCO23-Hub #68](https://github.com/murphieslaw23/syco23-hub/issues/68) |
+| 11 | P3 | [SYCO23-Hub #69](https://github.com/murphieslaw23/syco23-hub/issues/69) |
+| 12 | P3 | [SYCO23-Hub #70](https://github.com/murphieslaw23/syco23-hub/issues/70) |
+
+Mirrored planning view: [Notion MIXSETS Import Worker Roadmap](https://app.notion.com/p/3f318b2d8f9281da8180cd935574c64f?pvs=204).
